@@ -1,0 +1,23 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Start Stoll",
+            "type": "dotnet",
+            "request": "launch",
+            "projectPath": "${workspaceFolder}/src/Stoll/Stoll.csproj"
+        },
+        {
+            "name": "Start Wernstrom",
+            "type": "dotnet",
+            "request": "launch",
+            "projectPath": "${workspaceFolder}/src/Wernstrom/Wernstrom.csproj"
+        },
+        {
+            "name": "Tests Debug",
+            "type": "dotnet",
+            "request": "launch",
+            "projectPath": "${workspaceFolder}/src/RSBotWorks.Tests/RSBotWorks.Tests.csproj"
+        }
+    ]
+}
