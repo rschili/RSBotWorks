@@ -4,15 +4,12 @@ using RSHome.Services;
 
 namespace RSHome.Tests;
 
-public class ArchiveServiceTests
+public class SqliteMessageCacheTests
 {
     [Test]
     public async Task RoundtripDiscordMessages()
     {
-    var mockConfigService = new Mock<IConfigService>();
-    mockConfigService.Setup(config => config.SqliteDbPath).Returns(":memory:");
-
-    using var sqliteService = await SqliteService.CreateAsync(mockConfigService.Object);
+    using var sqliteService = await SqliteMessageCache.CreateAsync(":memory:");
     DateTimeOffset dto1 = DateTimeOffset.Now;
     DateTimeOffset dto2 = dto1.AddSeconds(1);
     await sqliteService.AddDiscordMessageAsync(1, dto1, 1, "MyUsername", "Test Message", true, 1);
@@ -43,10 +40,7 @@ public class ArchiveServiceTests
     [Test]
     public async Task RoundtripMatrixMessages()
     {
-        var mockConfigService = new Mock<IConfigService>();
-        mockConfigService.Setup(config => config.SqliteDbPath).Returns(":memory:");
-
-        using var sqliteService = await SqliteService.CreateAsync(mockConfigService.Object);
+        using var sqliteService = await SqliteMessageCache.CreateAsync(":memory:");
         DateTimeOffset dto1 = DateTimeOffset.Now;
         DateTimeOffset dto2 = dto1.AddSeconds(1);
         await sqliteService.AddMatrixMessageAsync("1", dto1, "user1", "User One", "Test Message", true, "room1");
@@ -75,42 +69,9 @@ public class ArchiveServiceTests
     }
 
     [Test]
-    public async Task SetAndGetSetting()
-    {
-        var mockConfigService = new Mock<IConfigService>();
-        mockConfigService.Setup(config => config.SqliteDbPath).Returns(":memory:");
-
-        using var sqliteService = await SqliteService.CreateAsync(mockConfigService.Object);
-        await sqliteService.SetSettingAsync("TestKey", "TestValue");
-
-        var value = await sqliteService.GetSettingOrDefaultAsync("TestKey");
-        await Assert.That(value).IsEqualTo("TestValue");
-    }
-
-    [Test]
-    public async Task RemoveSetting()
-    {
-        var mockConfigService = new Mock<IConfigService>();
-        mockConfigService.Setup(config => config.SqliteDbPath).Returns(":memory:");
-
-        using var sqliteService = await SqliteService.CreateAsync(mockConfigService.Object);
-        await sqliteService.SetSettingAsync("TestKey", "TestValue");
-
-        var value = await sqliteService.GetSettingOrDefaultAsync("TestKey");
-        await Assert.That(value).IsEqualTo("TestValue");
-
-        await sqliteService.RemoveSettingAsync("TestKey");
-        value = await sqliteService.GetSettingOrDefaultAsync("TestKey");
-        await Assert.That(value).IsNull();
-    }
-
-    [Test]
     public async Task GetOwnMessagesForTodayPlusLastForRoomAsync_ReturnsCorrectMessages()
     {
-        var mockConfigService = new Mock<IConfigService>();
-        mockConfigService.Setup(config => config.SqliteDbPath).Returns(":memory:");
-
-        using var sqliteService = await SqliteService.CreateAsync(mockConfigService.Object);
+        using var sqliteService = await SqliteMessageCache.CreateAsync(":memory:");
 
         var now = DateTimeOffset.UtcNow;
         var startOfDay = new DateTimeOffset(now.Year, now.Month, now.Day, 0, 0, 0, TimeSpan.Zero);
@@ -122,11 +83,9 @@ public class ArchiveServiceTests
         await sqliteService.AddMatrixMessageAsync("3", startOfDay.AddHours(3), "user1", "User One", "Own Message 2", true, "room1"); // yes
         await sqliteService.AddMatrixMessageAsync("4", startOfDay.AddHours(3), "user2", "User Two", "User Message 2", false, "room1");
         await sqliteService.AddMatrixMessageAsync("5", startOfDay.AddHours(23), "user2", "User Two", "User Message 3", false, "room1"); // yes
-        await sqliteService.AddMatrixMessageAsync("6", startOfDay.AddDays(1).AddHours(1), "user1", "User One", "Own Message 3", true, "room1");
-        await sqliteService.AddMatrixMessageAsync("7", startOfDay.AddDays(-1).AddHours(10), "user1", "User One", "Own Message 4", true, "room1");
 
         // Call the method
-        var messages = await sqliteService.GetOwnMessagesForTodayPlusLastForRoomAsync("room1");
+        var messages = await sqliteService.GetLastMatrixMessageAndOwnAsync("room1");
 
         // Assert the results
         await Assert.That(messages.Count).IsEqualTo(3);

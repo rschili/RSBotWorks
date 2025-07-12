@@ -2,26 +2,45 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using OpenAI.Responses;
+using RSBotWorks.Tools;
 using RSMatrix.Http;
 
 namespace RSHome.Services;
 
+public enum OpenAIModel
+{
+    GPT4o,
+    O1,
+    O3Mini,
+    GPT41
+}
+
 public class OpenAIService
 {
-    public IConfigService Config { get; private init; }
     public OpenAIResponseClient Client { get; private init; }
     public ILogger Logger { get; private init; }
 
-    public IToolService ToolService { get; private init; }
+    public ToolHub ToolHub { get; private init; }
 
     public LeakyBucketRateLimiter RateLimiter { get; private init; } = new(10, 60);
 
-    public OpenAIService(IConfigService config, ILogger<OpenAIService> logger, IToolService toolService)
+    public OpenAIService(string apiKey, ToolHub toolhub, OpenAIModel model = OpenAIModel.GPT41, ILogger<OpenAIService>? logger = null)
     {
-        Config = config ?? throw new ArgumentNullException(nameof(config));
         Logger = logger ?? throw new ArgumentNullException(nameof(logger));
-        Client = new OpenAIResponseClient(model: "gpt-4.1", apiKey: config.OpenAiApiKey); //  /*"o1" "o3-mini" "gpt-4o"*/
-        ToolService = toolService ?? throw new ArgumentNullException(nameof(toolService));
+        ToolHub = toolhub ?? throw new ArgumentNullException(nameof(toolhub));
+        Client = new OpenAIResponseClient(model: ModelToString(model), apiKey: apiKey);
+    }
+
+    private static string ModelToString(OpenAIModel model)
+    {
+        return model switch
+        {
+            OpenAIModel.GPT4o => "gpt-4o",
+            OpenAIModel.GPT41 => "gpt-4.1",
+            OpenAIModel.O1 => "o1",
+            OpenAIModel.O3Mini => "o3-mini",
+            _ => throw new ArgumentOutOfRangeException(nameof(model), model, null)
+        };
     }
 
     private const string WEATHER_TOOL_NAME = "weather_current";

@@ -50,7 +50,7 @@ builder.Logging
     .SetMinimumLevel(LogLevel.Warning)
     .AddSeq(config.SeqUrl, config.SeqApiKey);
 
-var sqliteService = await SqliteService.CreateAsync(config).ConfigureAwait(false);
+var sqliteService = await SqliteMessageCache.CreateAsync(config).ConfigureAwait(false);
 builder.Services
     .AddSingleton<IConfigService>(config)
     .AddSingleton<SecurityService>()

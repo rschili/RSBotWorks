@@ -1,11 +1,11 @@
-using RSHome.Services;
 using NSubstitute;
 using DotNetEnv.Extensions;
-using Microsoft.Extensions.Logging.Abstractions;
 using TUnit.Core.Logging;
 using System.Globalization;
+using RSBotWorks.Tools;
+using Microsoft.Extensions.Logging.Abstractions;
 
-namespace RSHome.Tests.Integration;
+namespace RSBotWorks.Tests;
 
 public class ToolTests
 {
@@ -23,11 +23,9 @@ public class ToolTests
         CultureInfo.DefaultThreadCurrentCulture = cultureInfo;
         CultureInfo.DefaultThreadCurrentUICulture = cultureInfo;
 
-        var config = Substitute.For<IConfigService>();
-        config.OpenWeatherMapApiKey.Returns(apiKey);
         var httpClientFactory = Substitute.For<IHttpClientFactory>();
         httpClientFactory.CreateClient(Arg.Any<string>()).Returns(_ => new HttpClient());
-        var service = new ToolService(config, NullLogger<ToolService>.Instance, httpClientFactory);
+        var service = new WeatherTool(httpClientFactory, NullLogger<WeatherTool>.Instance, apiKey);
 
         var response = await service.GetCurrentWeatherAsync("Dielheim").ConfigureAwait(false);
         await Assert.That(response).IsNotNullOrEmpty();
@@ -56,11 +54,9 @@ public class ToolTests
         CultureInfo.DefaultThreadCurrentCulture = cultureInfo;
         CultureInfo.DefaultThreadCurrentUICulture = cultureInfo;
 
-        var config = Substitute.For<IConfigService>();
-        config.OpenWeatherMapApiKey.Returns(apiKey);
         var httpClientFactory = Substitute.For<IHttpClientFactory>();
         httpClientFactory.CreateClient(Arg.Any<string>()).Returns(_ => new HttpClient());
-        var service = new ToolService(config, NullLogger<ToolService>.Instance, httpClientFactory);
+        var service = new WeatherTool(httpClientFactory, NullLogger<WeatherTool>.Instance, apiKey);
 
         var response = await service.GetWeatherForecastAsync("Dielheim").ConfigureAwait(false);
         await Assert.That(response).IsNotNullOrEmpty();
@@ -77,10 +73,9 @@ public class ToolTests
     [Test, Explicit]
     public async Task ObtainHeiseHeadlines()
     {
-        var config = Substitute.For<IConfigService>();
         var httpClientFactory = Substitute.For<IHttpClientFactory>();
         httpClientFactory.CreateClient(Arg.Any<string>()).Returns(_ => new HttpClient());
-        var service = new ToolService(config, NullLogger<ToolService>.Instance, httpClientFactory);
+        var service = new NewsTool(httpClientFactory, NullLogger<NewsTool>.Instance);
 
         var response = await service.GetHeiseHeadlinesAsync(10).ConfigureAwait(false);
         await Assert.That(response).IsNotNullOrEmpty();
@@ -92,10 +87,9 @@ public class ToolTests
     [Test, Explicit]
     public async Task ObtainPostillonHeadlines()
     {
-        var config = Substitute.For<IConfigService>();
         var httpClientFactory = Substitute.For<IHttpClientFactory>();
         httpClientFactory.CreateClient(Arg.Any<string>()).Returns(_ => new HttpClient());
-        var service = new ToolService(config, NullLogger<ToolService>.Instance, httpClientFactory);
+        var service = new NewsTool(httpClientFactory, NullLogger<NewsTool>.Instance);
 
         var response = await service.GetPostillonHeadlinesAsync(30).ConfigureAwait(false);
         await Assert.That(response).IsNotNullOrEmpty();
@@ -122,14 +116,13 @@ public class ToolTests
             return;
         }
 
-
-        var config = Substitute.For<IConfigService>();
-        config.HomeAssistantUrl.Returns(url);
-        config.HomeAssistantToken.Returns(token);
-        
         var httpClientFactory = Substitute.For<IHttpClientFactory>();
         httpClientFactory.CreateClient(Arg.Any<string>()).Returns(_ => new HttpClient());
-        var service = new ToolService(config, NullLogger<ToolService>.Instance, httpClientFactory);
+        var service = new HomeAssistantTool(
+            httpClientFactory,
+            url,
+            token,
+            NullLogger<HomeAssistantTool>.Instance);
 
         var response = await service.GetCupraInfoAsync().ConfigureAwait(false);
         await Assert.That(response).IsNotNullOrEmpty();
