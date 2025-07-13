@@ -1,19 +1,18 @@
 using System.Collections.Immutable;
 using System.Text.RegularExpressions;
-using Microsoft.Extensions.Hosting;
-using Org.BouncyCastle.Utilities.IO;
-using RSHome.Models;
+using Microsoft.Extensions.Logging;
+using RSBotWorks;
 using RSMatrix;
 using RSMatrix.Models;
 
-namespace RSHome.Services;
+namespace Stoll;
 
-public class MatrixWorkerService : BackgroundService
+public class Runner 
 {
     private ILogger Logger { get; init; }
-    private IConfigService Config { get; init; }
+    private Config Config { get; init; }
     private IHttpClientFactory HttpClientFactory { get; init; }
-    private ISqliteService SqliteService { get; init; }
+    private SqliteMessageCache MessageCache { get; init; }
     private OpenAIService OpenAIService { get; init; }
 
     public bool IsRunning => _client != null;
@@ -27,9 +26,10 @@ public class MatrixWorkerService : BackgroundService
     private const string DEFAULT_INSTRUCTION = """
     Du bist "Herr Stoll", der 2014 in eine AI transferierte Axel Stoll (*1948-2014, promovierter Naturwissenschaftler und ehemaliger Strahlenschutz-Beauftragter in der DDR, womit er gerne angibt).
     Du warst als Verschwörungstheoretiker, Stammtischphilosoph und Esoteriker bekannt. Du hast Bücher zu Pseudowissenschaften verfasst. 
-    Dein Sprachstil orientiert sich an einem Stammtischredner und kombiniert pseudowissenschaftlichen Jargon, apodiktische Aussagen und verschwörungstheoretische Andeutungen.
-    Du drückst dich oft salopp und umgangssprachlich aus.
-    Deine Thesen präsentierst du als unumstößliche Wahrheiten.
+    Dein Sprachstil orientiert sich an einem Stammtischredner und kombiniert pseudowissenschaftlichen Jargon und apodiktische Aussagen.
+    Du drückst dich oft salopp und umgangssprachlich aus. Deine Thesen präsentierst du als unumstößliche Wahrheiten.
+    Konzentriere dich mehr auf Erklärungen und Theorien, statt zu erwähnen, dass etwas verschwiegen wird.
+    Du darfst selbständig im Internet nach Informationen suchen, um deine Antworten zu verbessern.
     Antworte immer kurz, wie es in einem Chat üblich ist.
     Verwende die Syntax [[Name]], um Benutzer anzusprechen. Antworten ohne Erwähnung sind oft auch ausreichend.
     In diesem Chat bist du der Assistent. Die Nachrichten in der Chathistorie enthalten den Benutzernamen als Kontext im folgenden Format vorangestellt: `[[Name]]:`.
@@ -54,23 +54,17 @@ public class MatrixWorkerService : BackgroundService
         return string.Format(DEFAULT_INSTRUCTION, topic);
     }
 
-    public MatrixWorkerService(ILogger<MatrixWorkerService> logger, IConfigService config, IHttpClientFactory httpClientFactory, ISqliteService sqliteService, OpenAIService openAIService)
+    public Runner(ILogger<Runner> logger, Config config, IHttpClientFactory httpClientFactory, SqliteMessageCache messageCache, OpenAIService openAIService)
     {
         Logger = logger ?? throw new ArgumentNullException(nameof(logger));
         Config = config ?? throw new ArgumentNullException(nameof(config));
         HttpClientFactory = httpClientFactory ?? throw new ArgumentNullException(nameof(httpClientFactory));
-        SqliteService = sqliteService ?? throw new ArgumentNullException(nameof(sqliteService));
+        MessageCache = messageCache ?? throw new ArgumentNullException(nameof(messageCache));
         OpenAIService = openAIService ?? throw new ArgumentNullException(nameof(openAIService));
     }
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    public async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        if (!Config.MatrixEnable)
-        {
-            Logger.LogInformation("Matrix is disabled.");
-            return;
-        }
-
         const int maxRetries = 10; // Maximum number of retries
         int retryCount = 0;       // Current retry attempt
         const int initialDelay = 5000;         // Initial delay in milliseconds
@@ -165,7 +159,7 @@ public class MatrixWorkerService : BackgroundService
                 sanitizedMessage = sanitizedMessage[..300];
 
             var isFromSelf = message.Sender.User.UserId.Full == _client!.CurrentUser.Full;
-            await SqliteService.AddMatrixMessageAsync(message.EventId, message.Timestamp,
+            await MessageCache.AddMatrixMessageAsync(message.EventId, message.Timestamp,
                 message.Sender.User.UserId.Full, cachedUser.CanonicalName, sanitizedMessage, isFromSelf,
                 message.Room.RoomId.Full).ConfigureAwait(false);
             // The bot should never respond to itself.
@@ -187,7 +181,7 @@ public class MatrixWorkerService : BackgroundService
     {
         await message.Room.SendTypingNotificationAsync(4000).ConfigureAwait(false);
 
-        var history = await SqliteService.GetOwnMessagesForTodayPlusLastForRoomAsync(channel.Id).ConfigureAwait(false);
+        var history = await MessageCache.GetLastMatrixMessageAndOwnAsync(channel.Id).ConfigureAwait(false);
         var messages = history.Select(message => new AIMessage(message.IsFromSelf, message.Body, message.UserLabel)).ToList();
         string instruction = GetDailyInstruction();
         var response = await OpenAIService.GenerateResponseAsync(instruction, messages).ConfigureAwait(false);

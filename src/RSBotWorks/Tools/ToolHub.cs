@@ -27,6 +27,8 @@ public class ToolHub
 
     public ImmutableArray<Tool> Tools => _tools;
 
+    public bool EnableWebSearch { get; set; } = false;
+
     public ToolHub(ILogger<ToolHub>? logger = null)
     {
         Logger = logger ?? NullLogger<ToolHub>.Instance;

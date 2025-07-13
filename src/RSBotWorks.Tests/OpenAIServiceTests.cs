@@ -1,8 +1,8 @@
 using System.Threading.Tasks;
-using RSHome.Services;
+using RSBotWorks;
 using TUnit.Assertions.AssertConditions.Throws;
 
-namespace RSHome.Tests;
+namespace RSBotWorks.Tests;
 
 public class OpenAIServiceTests
 {

@@ -17,6 +17,8 @@
 
 	<ItemGroup>
 		<ProjectReference Include="..\RSBotWorks\RSBotWorks.csproj" />
+		<ProjectReference Include="..\Wernstrom\Wernstrom.csproj" />
+		<ProjectReference Include="..\Stoll\Stoll.csproj" />
 	</ItemGroup>
 
 </Project>

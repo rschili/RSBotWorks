@@ -1,11 +1,12 @@
-using RSHome.Services;
 using NSubstitute;
 using DotNetEnv.Extensions;
 using Microsoft.Extensions.Logging.Abstractions;
 using TUnit.Core.Logging;
 using System.Globalization;
+using RSBotWorks;
+using RSBotWorks.Tools;
 
-namespace RSHome.Tests.Integration;
+namespace RSBotWorks.Tests;
 
 public class OpenAITests
 {
@@ -23,10 +24,7 @@ public class OpenAITests
             return;
         }
 
-        var config = Substitute.For<IConfigService>();
-        config.OpenAiApiKey.Returns(openAiKey);
-        var toolService = Substitute.For<IToolService>();
-        var aiService = new OpenAIService(config, NullLogger<OpenAIService>.Instance, toolService);
+        var aiService = new OpenAIService(openAiKey, new ToolHub());
 
         List<AIMessage> messages = new()
         {
@@ -34,7 +32,7 @@ public class OpenAITests
             new AIMessage(true, "Hi [sikk], mir geht's gut, danke!", "Wernstrom"),
             new AIMessage(false, "Was ist dein Lieblingsessen?", "sikk"),
         };
-        var response = await aiService.GenerateResponseAsync(DiscordWorkerService.DEFAULT_INSTRUCTION, messages).ConfigureAwait(false);
+        var response = await aiService.GenerateResponseAsync(Wernstrom.Runner.DEFAULT_INSTRUCTION, messages).ConfigureAwait(false);
         await Assert.That(response).IsNotNullOrEmpty();
         var logger = TestContext.Current?.GetDefaultLogger();
         if (logger != null)
@@ -51,13 +49,22 @@ public class OpenAITests
             Assert.Fail("OPENAI_API_KEY is not set in the .env file.");
             return;
         }
+        string openWeatherMapKey = env["OPENWEATHERMAP_API_KEY"];
+        if (string.IsNullOrEmpty(openWeatherMapKey))
+        {
+            Assert.Fail("OPENWEATHERMAP_API_KEY is not set in the .env file.");
+            return;
+        }
 
-        var config = Substitute.For<IConfigService>();
-        config.OpenAiApiKey.Returns(openAiKey);
-        var toolService = Substitute.For<IToolService>();
-        toolService.GetCurrentWeatherAsync(Arg.Any<string>())
-            .Returns(callInfo => Task.FromResult($"Das Wetter in {callInfo.Arg<string>()} ist kalt und eisig."));
-        var aiService = new OpenAIService(config, NullLogger<OpenAIService>.Instance, toolService);
+        var httpClientFactory = Substitute.For<IHttpClientFactory>();
+        httpClientFactory.CreateClient(Arg.Any<string>()).Returns(_ => new HttpClient());
+
+        var toolService = new ToolHub();
+        toolService.RegisterToolProvider(new WeatherToolProvider(
+            httpClientFactory,
+            null,
+            openWeatherMapKey));
+        var aiService = new OpenAIService(openAiKey, toolService);
 
         List<AIMessage> messages = new()
         {
@@ -65,7 +72,7 @@ public class OpenAITests
             new AIMessage(true, "Das Wetter in Dielheim ist sonnig und warm.", "Wernstrom"),
             new AIMessage(false, "Und in Heidelberg?", "sikk"),
         };
-        var response = await aiService.GenerateResponseAsync(DiscordWorkerService.DEFAULT_INSTRUCTION, messages).ConfigureAwait(false);
+        var response = await aiService.GenerateResponseAsync(Wernstrom.Runner.DEFAULT_INSTRUCTION, messages).ConfigureAwait(false);
         await Assert.That(response).IsNotNullOrEmpty();
         var logger = TestContext.Current?.GetDefaultLogger();
         if (logger != null)
@@ -83,16 +90,15 @@ public class OpenAITests
             return;
         }
 
-        var config = Substitute.For<IConfigService>();
-        config.OpenAiApiKey.Returns(openAiKey);
-        var toolService = Substitute.For<IToolService>();
-        var aiService = new OpenAIService(config, NullLogger<OpenAIService>.Instance, toolService);
+        var toolHub = new ToolHub();
+        toolHub.EnableWebSearch = true;
+        var aiService = new OpenAIService(openAiKey, toolHub);
 
         List<AIMessage> messages = new()
         {
             new AIMessage(false, "Suche bitte im Netz nach Kinofilmen, die nächste Woche erscheinen.", "sikk"),
         };
-        var response = await aiService.GenerateResponseAsync(DiscordWorkerService.DEFAULT_INSTRUCTION, messages).ConfigureAwait(false);
+        var response = await aiService.GenerateResponseAsync(Wernstrom.Runner.DEFAULT_INSTRUCTION, messages).ConfigureAwait(false);
         await Assert.That(response).IsNotNullOrEmpty();
         var logger = TestContext.Current?.GetDefaultLogger();
         if (logger != null)
@@ -109,13 +115,24 @@ public class OpenAITests
             Assert.Fail("OPENAI_API_KEY is not set in the .env file.");
             return;
         }
+        string homeAssistantUrl = env["HA_API_URL"];
+        if (string.IsNullOrEmpty(homeAssistantUrl))
+        {
+            Assert.Fail("HA_API_URL is not set in the .env file.");
+            return;
+        }
+        string homeAssistantToken = env["HA_TOKEN"];
+        if (string.IsNullOrEmpty(homeAssistantToken))
+        {
+            Assert.Fail("HA_TOKEN is not set in the .env file.");
+            return;
+        }
 
-        var config = Substitute.For<IConfigService>();
-        config.OpenAiApiKey.Returns(openAiKey);
-        var toolService = Substitute.For<IToolService>();
-        toolService.GetCupraInfoAsync()
-            .Returns(callInfo => Task.FromResult($"Der Cupra Born ist aktuell zu 55% geladen und hat eine Reichweite von 250 km."));
-        var aiService = new OpenAIService(config, NullLogger<OpenAIService>.Instance, toolService);
+        var toolHub = new ToolHub();
+        var httpClientFactory = Substitute.For<IHttpClientFactory>();
+        httpClientFactory.CreateClient(Arg.Any<string>()).Returns(_ => new HttpClient());
+        toolHub.RegisterToolProvider(new HomeAssistantToolProvider(httpClientFactory, homeAssistantUrl, homeAssistantToken));
+        var aiService = new OpenAIService(openAiKey, toolHub);
 
         List<AIMessage> messages = new()
         {
@@ -123,7 +140,7 @@ public class OpenAITests
             new AIMessage(true, "Das Wetter in Dielheim ist sonnig und warm.", "Wernstrom"),
             new AIMessage(false, "Wieviel Ladung hat mein Auto gerade?", "krael"),
         };
-        var response = await aiService.GenerateResponseAsync(DiscordWorkerService.DEFAULT_INSTRUCTION, messages).ConfigureAwait(false);
+        var response = await aiService.GenerateResponseAsync(Wernstrom.Runner.DEFAULT_INSTRUCTION, messages).ConfigureAwait(false);
         await Assert.That(response).IsNotNullOrEmpty();
         var logger = TestContext.Current?.GetDefaultLogger();
         if (logger != null)

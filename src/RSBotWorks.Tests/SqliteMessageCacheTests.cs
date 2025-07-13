@@ -1,8 +1,6 @@
+using RSBotWorks;
 
-using Moq;
-using RSHome.Services;
-
-namespace RSHome.Tests;
+namespace RSBotWorks.Tests;
 
 public class SqliteMessageCacheTests
 {

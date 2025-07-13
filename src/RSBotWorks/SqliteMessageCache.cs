@@ -2,7 +2,7 @@ using System.Data;
 using Dapper;
 using Microsoft.Data.Sqlite;
 
-namespace RSHome.Services;
+namespace RSBotWorks;
 
 public class SqliteMessageCache : IDisposable
 {
@@ -116,11 +116,11 @@ public class SqliteMessageCache : IDisposable
                 SELECT * FROM MatrixMessages 
                 WHERE Room = @Room AND IsFromSelf = FALSE 
                 ORDER BY Timestamp DESC 
-                LIMIT 1
-              UNION ALL
+                LIMIT 1)
+            UNION ALL
+            SELECT * FROM (
                 SELECT * FROM MatrixMessages 
-                WHERE Room = @Room AND IsFromSelf = TRUE ORDER BY Timestamp DESC LIMIT @Count
-            )
+                WHERE Room = @Room AND IsFromSelf = TRUE ORDER BY Timestamp DESC LIMIT @Count)
             ORDER BY Timestamp ASC
             """,
             new { Room = room, Count = count });

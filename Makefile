@@ -4,8 +4,13 @@
 build:
 	cd src && dotnet build
 
-push: build test
-	./build_and_push.sh
+push_wernstrom: build test
+	./push_wernstrom.sh
+
+push_stoll: build test
+	./push_stoll.sh
+
+push: push_wernstrom push_stoll
 
 test:
 	cd src/RSBotWorks.Tests/ && dotnet run --disable-logo --output Detailed

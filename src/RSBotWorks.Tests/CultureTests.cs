@@ -1,8 +1,6 @@
 using System.Globalization;
-using RSHome.Services;
-using TUnit.Assertions.Extensions;
 
-namespace RSHome.Tests;
+namespace RSBotWorks.Tests;
 
 public class CultureTests
 {

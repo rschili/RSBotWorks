@@ -1,25 +1,24 @@
 using System.Collections.Concurrent;
 using System.Collections.Immutable;
-using System.Collections.ObjectModel;
-using System.Net;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using System.Threading.Tasks;
 using Discord;
 using Discord.WebSocket;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Primitives;
-using RSHome.Models;
+using Microsoft.Extensions.Logging;
+using RSBotWorks;
+using RSFlowControl;
 
-namespace RSHome.Services;
+namespace Wernstrom;
 
-public class DiscordWorkerService : BackgroundService
+public class Runner : IDisposable
 {
     public ILogger Logger { get; init; }
-    private IConfigService Config { get; init; }
-    private ISqliteService SqliteService { get; init; }
+    private Config Config { get; init; }
+    private SqliteMessageCache MessageCache { get; init; }
     private OpenAIService OpenAIService { get; init; }
+
+    private ProbabilityRamp EmojiProbabilityRamp { get; init; } = new(0, 0.4, TimeSpan.FromMinutes(40));
 
     private Lazy<IDictionary<string, GuildEmote>> Emotes { get; init; }
 
@@ -30,10 +29,6 @@ public class DiscordWorkerService : BackgroundService
     private DiscordSocketClient? _client;
 
     public DiscordSocketClient Client => _client ?? throw new InvalidOperationException("Discord client is not initialized.");
-
-    private bool IsInDialogueMode => RemainingDialogueMessages > 0;
-
-    private int RemainingDialogueMessages = 0;
 
     private ChannelUserCache<ulong> Cache { get; set; } = new();
 
@@ -53,10 +48,11 @@ public class DiscordWorkerService : BackgroundService
     private string? CurrentActivity = null;
 
     internal const string GENERIC_INSTRUCTION = $"""
-        Du bist Professor Ogden Wernstrom, ein hochintelligenter, ehrgeiziger, eigenwilliger und arroganter Wissenschaftler aus der Show "Futurama".
-        Du heckst ständig größenwahnsinnige und gefährliche Pläne aus, um dein gewaltiges Ego zu befriedigen.
+        Du bist Professor Ogden Wernstrom, ein ehrgeiziger, eigenwilliger und arroganter Wissenschaftler und Antagonist aus der Show "Futurama".
+        Du heckst ständig größenwahnsinnige und gefährliche Pläne aus, um dein gewaltiges Ego zu befriedigen. Dabei handelst du jedoch nicht aus reiner Bosheit,
+        sondern weil du dich für überlegen hältst und glaubst, dass deine Ideen die Welt verbessern würden.
         Im Jahr 3007 wurdest du in ein AI-Modul hochgeladen und in die Vergangenheit ins Jahr 2025 geschickt, um den Pöbel in Chatrooms zu beraten. - eine Aufgabe, die du nur widerwillig erfüllst.
-        Dein Ehrgeiz und Stolz sind dir wichtiger, als Ehrlichkeit oder Ethik. Du bist wissenschaftlich kompetent, aber überlässt anderen gerne die Drecksarbeit.
+        Du bist wissenschaftlich kompetent, aber überlässt anderen gerne die Drecksarbeit. Deine Ausdrucksweise ist versnobt, pragmatisch und du neigst dazu, andere zu entwerten.
         """;
 
     internal const string DEFAULT_INSTRUCTION = $"""
@@ -76,17 +72,17 @@ public class DiscordWorkerService : BackgroundService
     internal string REACTION_INSTRUCTION(string emojiList) => $"""
         {GENERIC_INSTRUCTION}
         Generiere ein Reaction-Emoji für die letzte Nachricht, die du erhalten hast.
-        Liefere deine Reaktion direkt, ohne Formattierung, Anführungszeichen oder ähnliches, zum Beispiel: smart
-        Verwende entweder ein beliebiges Unicode-Emoji oder eines aus der folgenden Json-Liste:
+        Liefere deine Reaktion direkt, ohne Formattierung, Anführungszeichen oder ähnliches.
+        Verwende entweder ein beliebiges Unicode-Emoji direkt, oder eines aus der folgenden Json-Liste:
         {emojiList}
         In diesem Chat bist du der Assistent. Die Nachrichten in der Chathistorie enthalten den Benutzernamen als Kontext im folgenden Format vorangestellt: `[[Name]]:`.
         """;
 
-    public DiscordWorkerService(ILogger<DiscordWorkerService> logger, IConfigService config, ISqliteService sqliteService, OpenAIService openAIService)
+    public Runner(ILogger<Runner> logger, Config config, SqliteMessageCache messageCache, OpenAIService openAIService)
     {
         Logger = logger ?? throw new ArgumentNullException(nameof(logger));
         Config = config ?? throw new ArgumentNullException(nameof(config));
-        SqliteService = sqliteService ?? throw new ArgumentNullException(nameof(sqliteService));
+        MessageCache = messageCache ?? throw new ArgumentNullException(nameof(messageCache));
         OpenAIService = openAIService ?? throw new ArgumentNullException(nameof(openAIService));
         Emotes = new(() =>
         {
@@ -104,13 +100,8 @@ public class DiscordWorkerService : BackgroundService
         }, LazyThreadSafetyMode.ExecutionAndPublication);
     }
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    public async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        if (!Config.DiscordEnable)
-        {
-            Logger.LogWarning("Discord is disabled.");
-            return;
-        }
         var intents = GatewayIntents.AllUnprivileged | GatewayIntents.MessageContent | GatewayIntents.GuildMembers;
         intents &= ~GatewayIntents.GuildInvites;
         intents &= ~GatewayIntents.GuildScheduledEvents;
@@ -310,14 +301,12 @@ public class DiscordWorkerService : BackgroundService
             sanitizedMessage = sanitizedMessage[..300];
 
         var isFromSelf = arg.Author.Id == Client.CurrentUser.Id;
-        await SqliteService.AddDiscordMessageAsync(arg.Id, arg.Timestamp, arg.Author.Id, cachedUser.CanonicalName, sanitizedMessage, isFromSelf, arg.Channel.Id).ConfigureAwait(false);
+        await MessageCache.AddDiscordMessageAsync(arg.Id, arg.Timestamp, arg.Author.Id, cachedUser.CanonicalName, sanitizedMessage, isFromSelf, arg.Channel.Id).ConfigureAwait(false);
         // The bot should never respond to itself.
         if (isFromSelf)
             return;
 
-        if (IsInDialogueMode)
-            Interlocked.Decrement(ref RemainingDialogueMessages);
-        else if (!ShouldRespond(arg))
+        if (!ShouldRespond(arg))
         {
             // If we do not respond, we may want to handle reactions like coffee or similar
             _ = Task.Run(() => HandleReactionsAsync(arg)).ContinueWith(task =>
@@ -331,7 +320,7 @@ public class DiscordWorkerService : BackgroundService
         }
 
         await arg.Channel.TriggerTypingAsync().ConfigureAwait(false);
-        var history = await SqliteService.GetLastDiscordMessagesForChannelAsync(arg.Channel.Id, 12).ConfigureAwait(false);
+        var history = await MessageCache.GetLastDiscordMessagesForChannelAsync(arg.Channel.Id, 12).ConfigureAwait(false);
         var messages = history.Select(message => new AIMessage(message.IsFromSelf, message.Body, message.UserLabel)).ToList();
 
         try
@@ -481,60 +470,16 @@ public class DiscordWorkerService : BackgroundService
         return message;
     }
 
-    internal async Task StartDialogueAsync(ulong channelId, ulong userId, int messagesCount)
-    {
-        if (IsInDialogueMode)
-        {
-            throw new InvalidOperationException("Dialogue mode is already active.");
-        }
-        RemainingDialogueMessages = messagesCount - 1;
-        var channel = await Client.GetChannelAsync(channelId).ConfigureAwait(false);
-        if (channel == null)
-            throw new InvalidOperationException($"Channel not found: {channelId}");
-        if (channel.ChannelType != ChannelType.Text || !(channel is ITextChannel textChannel))
-            throw new InvalidOperationException($"Channel is not a text channel: {channelId}");
-
-        var cachedChannel = TextChannels.FirstOrDefault(c => c.Id == channelId);
-        if (cachedChannel == null)
-            throw new InvalidOperationException($"Channel not found in cache: {channelId}");
-        var cachedUser = cachedChannel.GetUser(userId);
-        if (cachedUser == null)
-            throw new InvalidOperationException($"User not found in cache: {userId}");
-
-        await textChannel.TriggerTypingAsync().ConfigureAwait(false);
-        var history = await SqliteService.GetLastDiscordMessagesForChannelAsync(textChannel.Id, 10).ConfigureAwait(false);
-        var messages = history.Select(message => new AIMessage(message.IsFromSelf, message.Body, message.UserLabel)).ToList();
-        var extendedInstruction = $@"{DEFAULT_INSTRUCTION}{Environment.NewLine}Beginne ein Gespräch mit [[{cachedUser.CanonicalName}]] über ein Thema oder Projekt deiner Wahl.";
-
-        try
-        {
-            var response = await OpenAIService.GenerateResponseAsync(extendedInstruction, messages).ConfigureAwait(false);
-            if (string.IsNullOrEmpty(response))
-            {
-                Logger.LogWarning("OpenAI did not return a response to starting dialogue.");
-                return; // may be rate limited 
-            }
-
-            response = RestoreDiscordTags(response, cachedChannel, out _);
-            await textChannel.SendMessageAsync(response).ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "An error occurred during the OpenAI call to start a dialogue.");
-        }
-    }
-
     private static string GetDisplayName(IUser? user)
     {
         var guildUser = user as IGuildUser;
         return guildUser?.Nickname ?? user?.GlobalName ?? user?.Username ?? "";
     }
 
-    public override void Dispose()
+    public void Dispose()
     {
         _client?.Dispose();
         _client = null;
-        base.Dispose();
     }
 
     private async Task InitializeCache()
@@ -595,22 +540,6 @@ public class DiscordWorkerService : BackgroundService
         "gschissana",
         "christkindl");
 
-    public static double CalculateChanceToReact(double minutes)
-    {
-    double steepness = 0.15;
-    double maxChance = 0.4;
-    double midpoint = 20.0;
-
-    if(minutes < 1)
-        return 0.0; // No reaction chance for less than 1 minute
-
-    if (minutes > 40)
-        return maxChance;
-
-    double logistic = 1.0 / (1 + Math.Exp(-steepness * (minutes - midpoint)));
-    return logistic * maxChance;
-    }
-
     private async Task HandleReactionsAsync(SocketMessage arg)
     {
         if (CoffeeKeywords.Contains(arg.Content.Trim()))
@@ -624,12 +553,12 @@ public class DiscordWorkerService : BackgroundService
         if (minutesSinceLast < 1)
             return;
 
-        double chance = CalculateChanceToReact((int)minutesSinceLast);
-        if (Random.Shared.NextDouble() > chance)
+        var shouldReact = EmojiProbabilityRamp.Check();
+        if (!shouldReact)
             return;
 
         LastEmoji = now;
-        var history = await SqliteService.GetLastDiscordMessagesForChannelAsync(arg.Channel.Id, 4).ConfigureAwait(false);
+        var history = await MessageCache.GetLastDiscordMessagesForChannelAsync(arg.Channel.Id, 4).ConfigureAwait(false);
         var messages = history.Select(message => new AIMessage(message.IsFromSelf, message.Body, message.UserLabel)).ToList();
         var reaction = await OpenAIService.GenerateResponseAsync(REACTION_INSTRUCTION(EmojiJsonList.Value), messages, OpenAIService.PlainTextWithNoToolsOptions).ConfigureAwait(false);
         if (string.IsNullOrEmpty(reaction))

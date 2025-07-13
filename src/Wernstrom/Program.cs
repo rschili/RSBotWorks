@@ -1,5 +1,5 @@
 using System.Globalization;
-using Stoll;
+using Wernstrom;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using RSBotWorks.Tools;
@@ -56,10 +56,9 @@ var openAIService = new OpenAIService(
 try
 {
     var messageCache = await SqliteMessageCache.CreateAsync(config.SqliteDbPath).ConfigureAwait(false);
-    var runner = new Runner(
+    using var runner = new Runner(
         loggerFactory.CreateLogger<Runner>(),
         config,
-        httpClientFactory,
         messageCache,
         openAIService);
     await runner.ExecuteAsync(CancellationToken.None).ConfigureAwait(false);

@@ -6,7 +6,7 @@ COPY /src .
 
 # Publish the application
 WORKDIR /src/Wernstrom
-RUN dotnet publish -c Release -o out
+RUN dotnet publish -c Release -o out --self-contained true
 
 FROM mcr.microsoft.com/dotnet/runtime:9.0-alpine
 RUN apk update && apk --no-cache add ca-certificates tzdata icu-libs
@@ -15,4 +15,4 @@ ENV TZ=Europe/Berlin
 RUN ln -sf /usr/share/zoneinfo/Europe/Berlin /etc/localtime
 WORKDIR /Wernstrom
 COPY --from=build-env src/Wernstrom/out .
-ENTRYPOINT ["./Wernstrom"]
+ENTRYPOINT ["dotnet", "/Wernstrom/Wernstrom.dll"]

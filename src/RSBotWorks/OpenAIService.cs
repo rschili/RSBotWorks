@@ -8,7 +8,7 @@ using OpenAI.Responses;
 using RSBotWorks.Tools;
 using RSMatrix.Http;
 
-namespace RSHome.Services;
+namespace RSBotWorks;
 
 public enum OpenAIModel
 {
@@ -34,7 +34,7 @@ public class OpenAIService
         Logger = logger ?? throw new ArgumentNullException(nameof(logger));
         ToolHub = toolhub ?? throw new ArgumentNullException(nameof(toolhub));
         Client = new OpenAIResponseClient(model: ModelToString(model), apiKey: apiKey);
-        _tools = GenerateOpenAITools(toolhub.Tools);
+        _tools = GenerateOpenAITools(toolhub.Tools, toolhub.EnableWebSearch);
 
         // This is so silly, but the field is get-only
         foreach (var tool in _tools)
@@ -56,7 +56,7 @@ public class OpenAIService
         };
     }
 
-    private static List<ResponseTool> GenerateOpenAITools(ImmutableArray<Tool> tools)
+    private static List<ResponseTool> GenerateOpenAITools(ImmutableArray<Tool> tools, bool enableWebSearch)
     {
         var oaiTools = new List<ResponseTool>();
         
@@ -100,11 +100,12 @@ public class OpenAIService
             oaiTools.Add(responseTool);
         }
         
-        oaiTools.Add(ResponseTool.CreateWebSearchTool()); // Add web search tool by default
+        if(enableWebSearch)
+            oaiTools.Add(ResponseTool.CreateWebSearchTool()); // Add web search tool by default
         return oaiTools;
     }
 
-    private static readonly ResponseCreationOptions DefaultOptions = new()
+    public static readonly ResponseCreationOptions DefaultOptions = new()
     {
         MaxOutputTokenCount = 1000,
         StoredOutputEnabled = false,
@@ -115,7 +116,7 @@ public class OpenAIService
         ToolChoice = ResponseToolChoice.CreateAutoChoice(),
     };
 
-    internal static readonly ResponseCreationOptions StructuredJsonArrayOptions = new()
+    public static readonly ResponseCreationOptions StructuredJsonArrayOptions = new()
     {
         MaxOutputTokenCount = 1000,
         StoredOutputEnabled = false,
@@ -141,7 +142,7 @@ public class OpenAIService
         ToolChoice = ResponseToolChoice.CreateAutoChoice(),
     };
 
-    internal static readonly ResponseCreationOptions PlainTextWithNoToolsOptions = new()
+    public static readonly ResponseCreationOptions PlainTextWithNoToolsOptions = new()
     {
         MaxOutputTokenCount = 50,
         StoredOutputEnabled = false,

@@ -1,6 +1,6 @@
 using System.Collections.Immutable;
 
-namespace RSHome.Models;
+namespace RSBotWorks;
 
 public class ChannelUserCache<T>
 {

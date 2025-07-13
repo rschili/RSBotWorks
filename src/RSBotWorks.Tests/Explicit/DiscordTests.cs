@@ -1,11 +1,11 @@
-using RSHome.Services;
 using NSubstitute;
 using DotNetEnv.Extensions;
 using Microsoft.Extensions.Logging.Abstractions;
 using TUnit.Core.Logging;
 using System.Globalization;
+using RSBotWorks.Tools;
 
-namespace RSHome.Tests.Integration;
+namespace RSBotWorks.Tests;
 
 public class DiscordTests
 {
@@ -23,15 +23,15 @@ public class DiscordTests
             return;
         }
 
-        var config = Substitute.For<IConfigService>();
-        config.OpenAiApiKey.Returns(openAiKey);
-        config.SqliteDbPath.Returns(":memory:"); // Use in-memory database for testing
-        var sql = Substitute.For<ISqliteService>();
+        var sql = await SqliteMessageCache.CreateAsync(":memory:"); ;
+        await Assert.That(sql).IsNotNull();
 
-        var toolService = Substitute.For<IToolService>();
-        var aiService = new OpenAIService(config, NullLogger<OpenAIService>.Instance, toolService);
+        var toolService = new ToolHub();
+        var aiService = new OpenAIService(openAiKey, toolService);
 
-        var discordService = new DiscordWorkerService(NullLogger<DiscordWorkerService>.Instance, config, sql, aiService);
+        var config = Wernstrom.Config.LoadFromEnvFile();
+        await Assert.That(config).IsNotNull();
+        var discordService = new Wernstrom.Runner(NullLogger<Wernstrom.Runner>.Instance, config, sql, aiService);
 
         var statusMessages = await discordService.CreateNewStatusMessages();
         await Assert.That(statusMessages).IsNotNull();
@@ -40,15 +40,4 @@ public class DiscordTests
         if (logger != null)
             await logger.LogInformationAsync($"Response: {string.Join("\n", statusMessages)}");
     }
-
-    [Test]
-    public async Task ChanceToReact()
-    {
-        for (int i = 0; i < 60; i+=2)
-        {
-            double chance = DiscordWorkerService.CalculateChanceToReact(i);
-            await TestContext.Current!.GetDefaultLogger().LogInformationAsync($"Minutes: {i}, Chance: {chance}");
-        }
-    }
-
 }

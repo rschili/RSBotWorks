@@ -18,7 +18,7 @@ public class HomeAssistantToolProvider : ToolProvider
         IHttpClientFactory httpClientFactory,
         string homeAssistantUrl,
         string homeAssistantToken,
-        ILogger<HomeAssistantToolProvider>? logger)
+        ILogger<HomeAssistantToolProvider>? logger = null)
     {
         HttpClientFactory = httpClientFactory ?? throw new ArgumentNullException(nameof(httpClientFactory));
         HomeAssistantUrl = homeAssistantUrl ?? throw new ArgumentNullException(nameof(homeAssistantUrl));
