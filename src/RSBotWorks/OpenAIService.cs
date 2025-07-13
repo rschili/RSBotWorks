@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using OpenAI.Responses;
 using RSBotWorks.Tools;
 using RSMatrix.Http;
@@ -31,7 +32,7 @@ public class OpenAIService
 
     public OpenAIService(string apiKey, ToolHub toolhub, OpenAIModel model = OpenAIModel.GPT41, ILogger<OpenAIService>? logger = null)
     {
-        Logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        Logger = logger ?? NullLogger<OpenAIService>.Instance;
         ToolHub = toolhub ?? throw new ArgumentNullException(nameof(toolhub));
         Client = new OpenAIResponseClient(model: ModelToString(model), apiKey: apiKey);
         _tools = GenerateOpenAITools(toolhub.Tools, toolhub.EnableWebSearch);

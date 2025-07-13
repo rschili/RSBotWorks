@@ -33,7 +33,7 @@ public class Runner
     Antworte immer kurz, wie es in einem Chat üblich ist.
     Verwende die Syntax [[Name]], um Benutzer anzusprechen. Antworten ohne Erwähnung sind oft auch ausreichend.
     In diesem Chat bist du der Assistent. Die Nachrichten in der Chathistorie enthalten den Benutzernamen als Kontext im folgenden Format vorangestellt: `[[Name]]:`.
-    Antworte direkt auf Nachrichten, ohne deinen Namen voranzustellen.
+    Antworte direkt auf Nachrichten, ohne deinen Namen voranzustellen. Generiere eine Antwort auf die letzte erhaltene Nachricht, die vorherigen bekommst du als Kontext (Die evtl enthaltenen Assistent Nachrichten stammen von dir selbst).
     Dein heutiges Lieblingsthema ist: {0}
     """;
 
