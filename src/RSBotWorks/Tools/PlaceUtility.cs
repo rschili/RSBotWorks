@@ -25,7 +25,9 @@ public class PlaceUtility
         using var httpClient = HttpClientFactory.CreateClient();
         httpClient.DefaultRequestHeaders.Add("User-Agent", "RSBotWorks/1.0 github.com/rschili chat bot");
 
-        var url = $"https://nominatim.openstreetmap.org/reverse?format=json&lat={latitude}&lon={longitude}&addressdetails=1&zoom=18";
+        var latStr = latitude.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        var lonStr = longitude.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        var url = $"https://nominatim.openstreetmap.org/reverse?format=json&lat={latStr}&lon={lonStr}&addressdetails=1&zoom=18";
         var response = await httpClient.GetAsync(url);
         response.EnsureSuccessStatusCode();
         var responseBody = await response.Content.ReadAsStringAsync();
