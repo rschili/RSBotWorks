@@ -1,19 +1,27 @@
 using System.Collections.Immutable;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace RSBotWorks.Tools;
 
-public interface IToolProvider
+public abstract class ToolProvider
 {
-    IEnumerable<Tool> GetTools();
+    private ImmutableArray<Tool> _tools = ImmutableArray<Tool>.Empty;
+    public ImmutableArray<Tool> Tools => _tools;
+
+    protected void ExposeTool(Tool tool)
+    {
+        if (tool == null) throw new ArgumentNullException(nameof(tool));
+        _tools = _tools.Add(tool);
+    }
 }
 
 public class ToolHub
 {
     public ILogger Logger { get; private init; }
 
-    private ImmutableArray<IToolProvider> _toolProviders = ImmutableArray<IToolProvider>.Empty;
-    public ImmutableArray<IToolProvider> ToolProviders => _toolProviders;
+    private ImmutableArray<ToolProvider> _toolProviders = ImmutableArray<ToolProvider>.Empty;
+    public ImmutableArray<ToolProvider> ToolProviders => _toolProviders;
 
     private ImmutableArray<Tool> _tools = ImmutableArray<Tool>.Empty;
 
@@ -24,12 +32,12 @@ public class ToolHub
         Logger = logger ?? NullLogger<ToolHub>.Instance;
     }
 
-    public void RegisterToolProvider(IToolProvider toolProvider)
+    public void RegisterToolProvider(ToolProvider toolProvider)
     {
         if (toolProvider == null) throw new ArgumentNullException(nameof(toolProvider));
 
         _toolProviders = _toolProviders.Add(toolProvider);
-        foreach (var tool in toolProvider.GetTools())
+        foreach (var tool in toolProvider.Tools)
         {
             _tools = _tools.Add(tool);
         }

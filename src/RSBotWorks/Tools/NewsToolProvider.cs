@@ -1,22 +1,39 @@
 using System.ServiceModel.Syndication;
 using System.Xml;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace RSBotWorks.Tools;
 
-public class NewsTool
+public class NewsToolProvider : ToolProvider
 {
     public ILogger Logger { get; private init; }
     public IHttpClientFactory HttpClientFactory { get; private init; }
 
-    public NewsTool(IHttpClientFactory httpClientFactory, ILogger<NewsTool>? logger)
+    private TimedCache<string> _heiseCache = new(TimeSpan.FromHours(3));
+
+    private TimedCache<string> _postillonCache = new(TimeSpan.FromHours(3));
+
+    public NewsToolProvider(IHttpClientFactory httpClientFactory, ILogger<NewsToolProvider>? logger)
     {
         HttpClientFactory = httpClientFactory ?? throw new ArgumentNullException(nameof(httpClientFactory));
-        Logger = logger ?? NullLogger<NewsTool>.Instance;
+        Logger = logger ?? NullLogger<NewsToolProvider>.Instance;
+        ExposeTool(new Tool("heise_headlines", "Get the latest headlines from Heise Online (Technology related news)",
+            null,
+            async parameters => await GetHeiseHeadlinesAsync()));
+
+        ExposeTool(new Tool("postillon_headlines", "Get the latest headlines from Der Postillon (german satire magazine)",
+            null,
+            async parameters => await GetPostillonHeadlinesAsync()));
     }
 
     public async Task<string> GetHeiseHeadlinesAsync(int count = 5)
     {
+        if (_heiseCache.TryGet(out var cachedValue) && !string.IsNullOrEmpty(cachedValue))
+        {
+            Logger.LogInformation("Returning cached Heise headlines.");
+            return cachedValue;
+        }
         Logger.LogInformation("Fetching Heise headlines, count: {Count}", count);
         const string feedUrl = "https://www.heise.de/rss/heise-atom.xml";
 
@@ -27,11 +44,18 @@ public class NewsTool
         SyndicationFeed feed = SyndicationFeed.Load(reader);
 
         var summaries = feed.Items.Take(count).Select(item => item.Summary.Text);
-        return string.Join(Environment.NewLine, summaries);
+        var result = string.Join(Environment.NewLine, summaries);
+        _heiseCache.Set(result);
+        return result;
     }
 
     public async Task<string> GetPostillonHeadlinesAsync(int count = 5)
     {
+        if (_postillonCache.TryGet(out var cachedValue) && !string.IsNullOrEmpty(cachedValue))
+        {
+            Logger.LogInformation("Returning cached Postillon headlines.");
+            return cachedValue;
+        }
         Logger.LogInformation("Fetching Postillon headlines, count: {Count}", count);
         const string feedUrl = "https://follow.it/der-postillon-abo/rss";
 
@@ -60,7 +84,9 @@ public class NewsTool
         }
 
         var summaries = titles.Where(PostillonFilter).Take(count);
-        return string.Join(Environment.NewLine, summaries);
+        var result = string.Join(Environment.NewLine, summaries);
+        _postillonCache.Set(result);
+        return result;
     }
 
     private static readonly string[] PostillonBlacklist = ["Newsticker", "des Tages", "der Woche", "Sonntagsfrage"];

@@ -25,7 +25,7 @@ public class ToolTests
 
         var httpClientFactory = Substitute.For<IHttpClientFactory>();
         httpClientFactory.CreateClient(Arg.Any<string>()).Returns(_ => new HttpClient());
-        var service = new WeatherTool(httpClientFactory, NullLogger<WeatherTool>.Instance, apiKey);
+        var service = new WeatherToolProvider(httpClientFactory, NullLogger<WeatherToolProvider>.Instance, apiKey);
 
         var response = await service.GetCurrentWeatherAsync("Dielheim").ConfigureAwait(false);
         await Assert.That(response).IsNotNullOrEmpty();
@@ -56,7 +56,7 @@ public class ToolTests
 
         var httpClientFactory = Substitute.For<IHttpClientFactory>();
         httpClientFactory.CreateClient(Arg.Any<string>()).Returns(_ => new HttpClient());
-        var service = new WeatherTool(httpClientFactory, NullLogger<WeatherTool>.Instance, apiKey);
+        var service = new WeatherToolProvider(httpClientFactory, NullLogger<WeatherToolProvider>.Instance, apiKey);
 
         var response = await service.GetWeatherForecastAsync("Dielheim").ConfigureAwait(false);
         await Assert.That(response).IsNotNullOrEmpty();
@@ -75,7 +75,7 @@ public class ToolTests
     {
         var httpClientFactory = Substitute.For<IHttpClientFactory>();
         httpClientFactory.CreateClient(Arg.Any<string>()).Returns(_ => new HttpClient());
-        var service = new NewsTool(httpClientFactory, NullLogger<NewsTool>.Instance);
+        var service = new NewsToolProvider(httpClientFactory, NullLogger<NewsToolProvider>.Instance);
 
         var response = await service.GetHeiseHeadlinesAsync(10).ConfigureAwait(false);
         await Assert.That(response).IsNotNullOrEmpty();
@@ -89,7 +89,7 @@ public class ToolTests
     {
         var httpClientFactory = Substitute.For<IHttpClientFactory>();
         httpClientFactory.CreateClient(Arg.Any<string>()).Returns(_ => new HttpClient());
-        var service = new NewsTool(httpClientFactory, NullLogger<NewsTool>.Instance);
+        var service = new NewsToolProvider(httpClientFactory, NullLogger<NewsToolProvider>.Instance);
 
         var response = await service.GetPostillonHeadlinesAsync(30).ConfigureAwait(false);
         await Assert.That(response).IsNotNullOrEmpty();
@@ -118,16 +118,30 @@ public class ToolTests
 
         var httpClientFactory = Substitute.For<IHttpClientFactory>();
         httpClientFactory.CreateClient(Arg.Any<string>()).Returns(_ => new HttpClient());
-        var service = new HomeAssistantTool(
+        var service = new HomeAssistantToolProvider(
             httpClientFactory,
             url,
             token,
-            NullLogger<HomeAssistantTool>.Instance);
+            NullLogger<HomeAssistantToolProvider>.Instance);
 
         var response = await service.GetCupraInfoAsync().ConfigureAwait(false);
         await Assert.That(response).IsNotNullOrEmpty();
         var logger = TestContext.Current?.GetDefaultLogger();
         if (logger != null)
             await logger.LogInformationAsync($"Response for Cupra Info: {response}");
+    }
+
+    [Test, Explicit]
+    public async Task SupplementCityNameInGermany()
+    {
+        var lat = 49.2824981;
+        var lon = 8.7351709;
+        var cityName = "Dielheim";
+        var httpClientFactory = Substitute.For<IHttpClientFactory>();
+        httpClientFactory.CreateClient(Arg.Any<string>()).Returns(_ => new HttpClient());
+        var tool = new PlaceUtility(httpClientFactory);
+        var result = await tool.TrySupplement(cityName, lat, lon).ConfigureAwait(false);
+        await Assert.That(result.Success).IsTrue();
+        await Assert.That(result.SupplementedCityName).IsEqualTo("69234 Dielheim (Baden-Württemberg)");
     }
 }

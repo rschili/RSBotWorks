@@ -3,27 +3,30 @@ using System.Collections.Immutable;
 namespace RSBotWorks.Tools;
 
 
-public abstract class Tool
+public class Tool
 {
     public string Name { get; }
     public string Description { get; }
+    public IReadOnlyList<ToolParameter> Parameters { get; }
 
-    private ImmutableArray<ToolParameter> _parameters = ImmutableArray<ToolParameter>.Empty;
-    public IReadOnlyList<ToolParameter> Parameters => _parameters.AsReadOnly();
+    private readonly Func<Dictionary<string, string>, Task<string>> _handler;
 
-    protected Tool(string name, string description)
+    public Tool(
+        string name,
+        string description,
+        IEnumerable<ToolParameter>? parameters,
+        Func<Dictionary<string, string>, Task<string>> handler)
     {
         Name = name ?? throw new ArgumentNullException(nameof(name));
         Description = description ?? throw new ArgumentNullException(nameof(description));
+        Parameters = parameters?.ToList().AsReadOnly() ?? new List<ToolParameter>().AsReadOnly();
+        _handler = handler ?? throw new ArgumentNullException(nameof(handler));
     }
 
-    protected void AddParameter(ToolParameter parameter)
+    public Task<string> ExecuteAsync(Dictionary<string, string> parameters)
     {
-        if (parameter == null) throw new ArgumentNullException(nameof(parameter));
-        _parameters.Add(parameter);
+        return _handler(parameters);
     }
-
-    public abstract Task<string> ExecuteAsync(Dictionary<string, string> parameters);
 }
 
 public class ToolParameter

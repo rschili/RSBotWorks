@@ -1,6 +1,9 @@
+using System.Collections.Immutable;
+using System.Reflection.Metadata.Ecma335;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Microsoft.Extensions.Logging;
 using OpenAI.Responses;
 using RSBotWorks.Tools;
 using RSMatrix.Http;
@@ -23,12 +26,22 @@ public class OpenAIService
     public ToolHub ToolHub { get; private init; }
 
     public LeakyBucketRateLimiter RateLimiter { get; private init; } = new(10, 60);
+    
+    private List<ResponseTool> _tools;
 
     public OpenAIService(string apiKey, ToolHub toolhub, OpenAIModel model = OpenAIModel.GPT41, ILogger<OpenAIService>? logger = null)
     {
         Logger = logger ?? throw new ArgumentNullException(nameof(logger));
         ToolHub = toolhub ?? throw new ArgumentNullException(nameof(toolhub));
         Client = new OpenAIResponseClient(model: ModelToString(model), apiKey: apiKey);
+        _tools = GenerateOpenAITools(toolhub.Tools);
+
+        // This is so silly, but the field is get-only
+        foreach (var tool in _tools)
+        {
+            DefaultOptions.Tools.Add(tool);
+            StructuredJsonArrayOptions.Tools.Add(tool);
+        }
     }
 
     private static string ModelToString(OpenAIModel model)
@@ -43,74 +56,53 @@ public class OpenAIService
         };
     }
 
-    private const string WEATHER_TOOL_NAME = "weather_current";
-    private static readonly ResponseTool weatherCurrentTool = ResponseTool.CreateFunctionTool
-    (
-        functionName: WEATHER_TOOL_NAME,
-        functionDescription: "Get the current weather and sunrise/sunset for a given location",
-        functionParameters: BinaryData.FromBytes("""
+    private static List<ResponseTool> GenerateOpenAITools(ImmutableArray<Tool> tools)
+    {
+        var oaiTools = new List<ResponseTool>();
+        
+        foreach (var tool in tools)
+        {
+            var properties = new Dictionary<string, object>();
+            var required = new List<string>();
+            
+            foreach (var parameter in tool.Parameters)
             {
-                "type": "object",
-                "properties": {
-                    "location": {
-                        "type": "string",
-                        "description": "City name or ZIP code to get the current weather for. When providing a City name, an ISO 3166 country code can be appended with a comma e.g. 'Heidelberg,DE' to avoid ambiguity."
-                    }
-                },
-                "required": [ "location" ]
+                properties[parameter.Name] = new
+                {
+                    type = parameter.Type.ToLowerInvariant(),
+                    description = parameter.Description
+                };
+                
+                if (parameter.IsRequired)
+                {
+                    required.Add(parameter.Name);
+                }
             }
-            """u8.ToArray())
-    );
-
-    private const string FORECAST_TOOL_NAME = "weather_forecast";
-    private static readonly ResponseTool weatherForecastTool = ResponseTool.CreateFunctionTool
-    (
-        functionName: FORECAST_TOOL_NAME,
-        functionDescription: "Get a 5 day weather forecast for a given location",
-        functionParameters: BinaryData.FromBytes("""
+            
+            var schema = new
             {
-                "type": "object",
-                "properties": {
-                    "location": {
-                        "type": "string",
-                        "description": "City name or ZIP code to get the current weather for. When providing a City name, an ISO 3166 country code can be appended with a comma e.g. 'Heidelberg,DE' to avoid ambiguity."
-                    }
-                },
-                "required": [ "location" ]
-            }
-            """u8.ToArray())
-    );
-
-    private const string HEISE_TOOL_NAME = "heise_headlines";
-    private static readonly ResponseTool heiseHeadlinesTool = ResponseTool.CreateFunctionTool
-    (
-        functionName: HEISE_TOOL_NAME,
-        functionDescription: "Get the latest headlines from Heise Online (Technology related news)",
-        functionParameters: BinaryData.FromBytes("""
-            {}
-            """u8.ToArray())
-    );
-
-    private const string POSTILLON_TOOL_NAME = "postillon_headlines";
-    private static readonly ResponseTool postillonHeadlinesTool = ResponseTool.CreateFunctionTool
-    (
-        functionName: POSTILLON_TOOL_NAME,
-        functionDescription: "Get the latest headlines from 'Der Postillon', a german satire magazine",
-        functionParameters: BinaryData.FromBytes("""
-            {}
-            """u8.ToArray())
-    );
-
-    private const string CAR_TOOL_NAME = "car_status";
-    private static readonly ResponseTool carStatusTool = ResponseTool.CreateFunctionTool
-(
-    functionName: CAR_TOOL_NAME,
-    functionDescription: "Get status of the car of the user krael aka noppel (charge, range, doors, etc.)",
-    functionParameters: BinaryData.FromBytes("""
-            {}
-            """u8.ToArray())
-);
-
+                type = "object",
+                properties,
+                required = required.ToArray()
+            };
+            
+            var schemaJson = properties.Count > 0 ? JsonSerializer.Serialize(schema, new JsonSerializerOptions 
+            { 
+                WriteIndented = false 
+            }) : "{}";
+            
+            var responseTool = ResponseTool.CreateFunctionTool(
+                functionName: tool.Name,
+                functionDescription: tool.Description,
+                functionParameters: BinaryData.FromString(schemaJson)
+            );
+            
+            oaiTools.Add(responseTool);
+        }
+        
+        oaiTools.Add(ResponseTool.CreateWebSearchTool()); // Add web search tool by default
+        return oaiTools;
+    }
 
     private static readonly ResponseCreationOptions DefaultOptions = new()
     {
@@ -120,7 +112,6 @@ public class OpenAIService
         {
             TextFormat = ResponseTextFormat.CreateTextFormat()
         },
-        Tools = { weatherCurrentTool, weatherForecastTool, heiseHeadlinesTool, postillonHeadlinesTool, carStatusTool, ResponseTool.CreateWebSearchTool() },
         ToolChoice = ResponseToolChoice.CreateAutoChoice(),
     };
 
@@ -147,7 +138,6 @@ public class OpenAIService
             }
             """u8.ToArray()), null, true)
         },
-        Tools = { weatherCurrentTool, weatherForecastTool, heiseHeadlinesTool, postillonHeadlinesTool, carStatusTool },
         ToolChoice = ResponseToolChoice.CreateAutoChoice(),
     };
 
@@ -195,7 +185,7 @@ public class OpenAIService
 
         try
         {
-            return await CreateResponseAsync(instructions, 1, 0, options).ConfigureAwait(false);
+            return await GenerateResponseInternalAsync(instructions, 1, 0, options).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -204,7 +194,7 @@ public class OpenAIService
         }
     }
 
-    public async Task<string> CreateResponseAsync(List<ResponseItem> instructions, int depth = 1, int toolCalls = 0, ResponseCreationOptions? options = null)
+    public async Task<string> GenerateResponseInternalAsync(List<ResponseItem> instructions, int depth = 1, int toolCalls = 0, ResponseCreationOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(instructions, nameof(instructions));
         if (depth > 3)
@@ -235,7 +225,7 @@ public class OpenAIService
                 toolCalls++;
                 await HandleFunctionCall(functionCall, instructions);
             }
-            return await CreateResponseAsync(instructions, depth + 1, toolCalls).ConfigureAwait(false);
+            return await GenerateResponseInternalAsync(instructions, depth + 1, toolCalls).ConfigureAwait(false);
         }
 
         string? output = response.GetOutputText();
@@ -259,112 +249,21 @@ public class OpenAIService
 
     private async Task HandleFunctionCall(FunctionCallResponseItem functionCall, List<ResponseItem> instructions)
     {
-        switch (functionCall.FunctionName)
+        using JsonDocument argumentsJson = JsonDocument.Parse(functionCall.FunctionArguments);
+        var argsDict = new Dictionary<string, string>();
+        foreach (var property in argumentsJson.RootElement.EnumerateObject())
         {
-            case WEATHER_TOOL_NAME:
-                {
-                    using JsonDocument argumentsJson = JsonDocument.Parse(functionCall.FunctionArguments);
-                    bool hasLocation = argumentsJson.RootElement.TryGetProperty("location", out JsonElement location);
-                    if (!hasLocation)
-                        throw new ArgumentNullException(nameof(location), "The location argument is required for the weather tool.");
+            if (property.Value.ValueKind != JsonValueKind.String)
+                continue;
 
-                    try
-                    {
-                        string weatherResponse = await ToolService.GetCurrentWeatherAsync(location.GetString()!).ConfigureAwait(false);
-                        if (string.IsNullOrEmpty(weatherResponse))
-                        {
-                            Logger.LogWarning("Weather tool call returned no response.");
-                            instructions.Add(ResponseItem.CreateFunctionCallOutputItem(functionCall.CallId, "Keine Wetterdaten gefunden."));
-                        }
-                        instructions.Add(ResponseItem.CreateFunctionCallOutputItem(functionCall.CallId, weatherResponse));
-                    }
-                    catch (Exception ex)
-                    {
-                        Logger.LogError(ex, "An error occurred while calling the weather tool.");
-                        instructions.Add(ResponseItem.CreateFunctionCallOutputItem(functionCall.CallId, $"Fehler beim Abrufen der Wetterdaten. {ex.Message}"));
-                    }
-                    break;
-                }
-            case FORECAST_TOOL_NAME:
-                {
-                    using JsonDocument argumentsJson = JsonDocument.Parse(functionCall.FunctionArguments);
-                    bool hasLocation = argumentsJson.RootElement.TryGetProperty("location", out JsonElement location);
-                    if (!hasLocation)
-                        throw new ArgumentNullException(nameof(location), "The location argument is required for the weather forecast tool.");
+            var str = property.Value.GetString();
+            if (string.IsNullOrEmpty(str))
+                continue;
 
-                    try
-                    {
-                        string forecastResponse = await ToolService.GetWeatherForecastAsync(location.GetString()!).ConfigureAwait(false);
-                        if (string.IsNullOrEmpty(forecastResponse))
-                        {
-                            Logger.LogWarning("Weather forecast tool call returned no response.");
-                            instructions.Add(ResponseItem.CreateFunctionCallOutputItem(functionCall.CallId, "Keine Wettervorhersage gefunden."));
-                        }
-                        instructions.Add(ResponseItem.CreateFunctionCallOutputItem(functionCall.CallId, forecastResponse));
-                    }
-                    catch (Exception ex)
-                    {
-                        Logger.LogError(ex, "An error occurred while calling the weather forecast tool.");
-                        instructions.Add(ResponseItem.CreateFunctionCallOutputItem(functionCall.CallId, $"Fehler beim Abrufen der Wettervorhersage. {ex.Message}"));
-                    }
-                    break;
-                }
-            case HEISE_TOOL_NAME:
-                try
-                {
-                    string heiseResponse = await ToolService.GetHeiseHeadlinesAsync(15).ConfigureAwait(false);
-                    if (string.IsNullOrEmpty(heiseResponse))
-                    {
-                        Logger.LogWarning("Heise tool call returned no response.");
-                        instructions.Add(ResponseItem.CreateFunctionCallOutputItem(functionCall.CallId, "Keine Heise Online Nachrichten gefunden."));
-                    }
-                    instructions.Add(ResponseItem.CreateFunctionCallOutputItem(functionCall.CallId, heiseResponse));
-                }
-                catch (Exception ex)
-                {
-                    Logger.LogError(ex, "An error occurred while calling the Heise tool.");
-                    instructions.Add(ResponseItem.CreateFunctionCallOutputItem(functionCall.CallId, $"Fehler beim Abrufen der Heise Online Nachrichten. {ex.Message}"));
-                }
-                break;
-            case POSTILLON_TOOL_NAME:
-                try
-                {
-                    string postillonResponse = await ToolService.GetPostillonHeadlinesAsync(10).ConfigureAwait(false);
-                    if (string.IsNullOrEmpty(postillonResponse))
-                    {
-                        Logger.LogWarning("Postillon tool call returned no response.");
-                        instructions.Add(ResponseItem.CreateFunctionCallOutputItem(functionCall.CallId, "Keine Postillon Nachrichten gefunden."));
-                    }
-                    instructions.Add(ResponseItem.CreateFunctionCallOutputItem(functionCall.CallId, postillonResponse));
-                }
-                catch (Exception ex)
-                {
-                    Logger.LogError(ex, "An error occurred while calling the Postillon tool.");
-                    instructions.Add(ResponseItem.CreateFunctionCallOutputItem(functionCall.CallId, $"Fehler beim Abrufen der Postillon Online Nachrichten. {ex.Message}"));
-                }
-                break;
-            case CAR_TOOL_NAME:
-                try
-                {
-                    string carStatusResponse = await ToolService.GetCupraInfoAsync().ConfigureAwait(false);
-                    if (string.IsNullOrEmpty(carStatusResponse))
-                    {
-                        Logger.LogWarning("Car status tool call returned no response.");
-                        instructions.Add(ResponseItem.CreateFunctionCallOutputItem(functionCall.CallId, "Keine Fahrzeugdaten gefunden."));
-                    }
-                    instructions.Add(ResponseItem.CreateFunctionCallOutputItem(functionCall.CallId, carStatusResponse));
-                }
-                catch (Exception ex)
-                {
-                    Logger.LogError(ex, "An error occurred while calling the car status tool.");
-                    instructions.Add(ResponseItem.CreateFunctionCallOutputItem(functionCall.CallId, $"Fehler beim Abrufen der Fahrzeugdaten. {ex.Message}"));
-                }
-                break;
-            default:
-                Logger.LogWarning("OpenAI called an unknown tool: {ToolName}.", functionCall.FunctionName);
-                instructions.Add(ResponseItem.CreateFunctionCallOutputItem(functionCall.CallId, $"Unbekannter Toolaufruf: {functionCall.FunctionName}"));
-                break;
+            argsDict[property.Name] = str;
         }
+        var response = await ToolHub.CallAsync(functionCall.FunctionName, argsDict);
+        instructions.Add(ResponseItem.CreateFunctionCallOutputItem(functionCall.CallId, response));
     }
 
     public static string SanitizeName(string participantName)

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace RSBotWorks.Tools;
@@ -17,6 +18,12 @@ public class City
 {
     [JsonPropertyName("name")]
     public required string Name { get; set; }
+
+    [JsonPropertyName("coord")]
+    public required Coordinates Coord { get; set; }
+
+    [JsonPropertyName("country")]
+    public required string Country { get; set; }
 }
 
 public class Forecast
@@ -47,13 +54,25 @@ public class WeatherResponse
 
     [JsonPropertyName("sys")]
     public required Sys Sys { get; set; }
+
+    [JsonPropertyName("coord")]
+    public required Coordinates Coord { get; set; }
+}
+
+public class Coordinates
+{
+    [JsonPropertyName("lon")]
+    public required double Longitude { get; set; }
+
+    [JsonPropertyName("lat")]
+    public required double Latitude { get; set; }
 }
 
 public class WeatherInfo
-{
-    [JsonPropertyName("description")]
-    public required string Description { get; set; }
-}
+    {
+        [JsonPropertyName("description")]
+        public required string Description { get; set; }
+    }
 
 public class MainWeather
 {
@@ -85,18 +104,27 @@ public class Sys
     public required long Sunset { get; set; }
 }
 
-public class WeatherTool
+public class WeatherToolProvider: ToolProvider
 {
     public ILogger Logger { get; private init; }
     public IHttpClientFactory HttpClientFactory { get; private init; }
 
+    private PlaceUtility _placeUtility;
+
     public string ApiKey { get; private init; }
 
-    public WeatherTool(IHttpClientFactory httpClientFactory, ILogger<WeatherTool>? logger, string apiKey)
+    public WeatherToolProvider(IHttpClientFactory httpClientFactory, ILogger<WeatherToolProvider>? logger, string apiKey)
     {
         ApiKey = apiKey ?? throw new ArgumentNullException(nameof(apiKey));
         HttpClientFactory = httpClientFactory ?? throw new ArgumentNullException(nameof(httpClientFactory));
-        Logger = logger ?? NullLogger<WeatherTool>.Instance;
+        Logger = logger ?? NullLogger<WeatherToolProvider>.Instance;
+        _placeUtility = new PlaceUtility(httpClientFactory);
+        ExposeTool(new Tool("weather_current", "Get the current weather and sunrise/sunset for a given location",
+            new List<ToolParameter> { new ToolParameter("location", "City name or ZIP code to get the current weather for. When providing a City name, an ISO 3166 country code can be appended with a comma e.g. 'Heidelberg,DE' to avoid ambiguity.") },
+            async parameters => await GetCurrentWeatherAsync(parameters["location"])));
+        ExposeTool(new Tool("weather_forecast", "Get a 5 day weather forecast for a given location",
+            new List<ToolParameter> { new ToolParameter("location", "City name or ZIP code to get the weather forecast for. When providing a City name, an ISO 3166 country code can be appended with a comma e.g. 'Heidelberg,DE' to avoid ambiguity.") },
+            async parameters => await GetWeatherForecastAsync(parameters["location"])));
     }
 
     public async Task<string> GetCurrentWeatherAsync(string location)
@@ -133,11 +161,35 @@ public class WeatherTool
             DateTimeOffset sunrise = DateTimeOffset.FromUnixTimeSeconds(sunriseUnix).ToLocalTime();
             DateTimeOffset sunset = DateTimeOffset.FromUnixTimeSeconds(sunsetUnix).ToLocalTime();
 
-            return $"Aktuelles Wetter in {cityName}, {country}: {description}, {temperature}°C (gefühlt {feelsLike}°C), Luftfeuchtigkeit: {humidity}%, Wind: {windSpeed} m/s, Sonnenaufgang: {sunrise:HH:mm}, Sonnenuntergang: {sunset:HH:mm}";
+            cityName = await SupplementCityNameIfGermanAsync(cityName, weather.Sys.Country, weather.Coord);
+            return $"Aktuelles Wetter in {cityName}: {description}, {temperature}°C (gefühlt {feelsLike}°C), Luftfeuchtigkeit: {humidity}%, Wind: {windSpeed} m/s, Sonnenaufgang: {sunrise:HH:mm}, Sonnenuntergang: {sunset:HH:mm}";
         }
         catch (JsonException)
         {
             throw ThrowWeatherApiException(responseBody);
+        }
+    }
+
+    private async Task<string> SupplementCityNameIfGermanAsync(string cityName, string country, Coordinates coord)
+    {
+        try
+        {
+            if (string.Equals(country, "DE", StringComparison.OrdinalIgnoreCase))
+            {
+                // If the city is in Germany, we can use the PlaceUtility to get more information
+                var (success, supplementedCityName) = await _placeUtility.TrySupplement(cityName, coord.Latitude, coord.Longitude);
+                if (success && !string.IsNullOrEmpty(supplementedCityName))
+                {
+                    return supplementedCityName;
+                }
+            }
+            return cityName;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to supplement city name for {CityName}, {Country}", cityName, country);
+            // Fallback: append country code to city name if there's an error
+            return $"{cityName}, {country}";
         }
     }
 
@@ -178,7 +230,12 @@ public class WeatherTool
                 }
             }
 
-            return string.Join(Environment.NewLine, forecastLines);
+            var list = string.Join(Environment.NewLine, forecastLines);
+            var cityName = weather.City.Name;
+            var country = weather.City.Country;
+            var coordinates = weather.City.Coord;
+            cityName = await SupplementCityNameIfGermanAsync(cityName, country, coordinates);
+            return $"5-Tage Wettervorhersage für {cityName}:\n{list}";
         }
         catch (JsonException)
         {
