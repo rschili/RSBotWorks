@@ -515,7 +515,7 @@ public class Runner : IDisposable
     private ChannelUser<ulong> GenerateChannelUser(IUser user)
     {
         var displayName = GetDisplayName(user);
-        var sanitizedName = OpenAIService.IsValidName(displayName) ? displayName : OpenAIService.SanitizeName(displayName);
+        var sanitizedName = NameSanitizer.IsValidName(displayName) ? displayName : NameSanitizer.SanitizeName(displayName);
         return new ChannelUser<ulong>(user.Id, displayName, sanitizedName);
     }
 

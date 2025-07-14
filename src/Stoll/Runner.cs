@@ -200,7 +200,7 @@ public class Runner
     private static ChannelUser<string> GenerateChannelUser(RoomUser user)
     {
         var displayName = user.GetDisplayName();
-        var sanitizedName = OpenAIService.IsValidName(displayName) ? displayName : OpenAIService.SanitizeName(displayName);
+        var sanitizedName = NameSanitizer.IsValidName(displayName) ? displayName : NameSanitizer.SanitizeName(displayName);
         return new ChannelUser<string>(user.User.UserId.Full, displayName, sanitizedName);
     }
 

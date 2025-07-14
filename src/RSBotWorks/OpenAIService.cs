@@ -170,7 +170,7 @@ public class OpenAIService
             if (participantName == null || participantName.Length >= 100)
                 throw new ArgumentException("Participant name is too long.", nameof(participantName));
 
-            if (!IsValidName(participantName))
+            if (!NameSanitizer.IsValidName(participantName))
                 throw new ArgumentException("Participant name is invalid.", nameof(participantName));
 
             if (input.IsSelf)
@@ -266,25 +266,6 @@ public class OpenAIService
         }
         var response = await ToolHub.CallAsync(functionCall.FunctionName, argsDict);
         instructions.Add(ResponseItem.CreateFunctionCallOutputItem(functionCall.CallId, response));
-    }
-
-    public static string SanitizeName(string participantName)
-    {
-        ArgumentNullException.ThrowIfNull(participantName, nameof(participantName));
-
-        string withoutSpaces = participantName.Replace(" ", "_");
-        string normalized = withoutSpaces.Normalize(NormalizationForm.FormD);
-        string safeName = Regex.Replace(normalized, @"[^a-zA-Z0-9_-]+", "");
-        if (safeName.Length > 100)
-            safeName = safeName.Substring(0, 100);
-
-        safeName = safeName.Trim('_');
-        return safeName;
-    }
-
-    public static bool IsValidName(string name)
-    {
-        return !string.IsNullOrEmpty(name) && Regex.IsMatch(name, "^[a-zA-Z0-9_-]+$");
     }
 }
 

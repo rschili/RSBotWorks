@@ -4,7 +4,7 @@ using TUnit.Assertions.AssertConditions.Throws;
 
 namespace RSBotWorks.Tests;
 
-public class OpenAIServiceTests
+public class NameSanitizerTests
 {
     [Test]
     public async Task SanitizeName_RemovesInvalidCharacters()
@@ -12,7 +12,7 @@ public class OpenAIServiceTests
         string input = "Invalid@Name!";
         string expected = "InvalidName";
 
-        string result = OpenAIService.SanitizeName(input);
+        string result = NameSanitizer.SanitizeName(input);
 
         await Assert.That(result).IsEqualTo(expected);
     }
@@ -23,7 +23,7 @@ public class OpenAIServiceTests
         string input = "Náïve";
         string expected = "Naive";
 
-        string result = OpenAIService.SanitizeName(input);
+        string result = NameSanitizer.SanitizeName(input);
 
         await Assert.That(result).IsEqualTo(expected);
     }
@@ -34,7 +34,7 @@ public class OpenAIServiceTests
     [Arguments("sikk 🦀", "sikk")]
     public async Task SanitizeName_HandlesKnownNames(string input, string expected)
     {
-        string result = OpenAIService.SanitizeName(input);
+        string result = NameSanitizer.SanitizeName(input);
         await Assert.That(result).IsEqualTo(expected);
     }
 
@@ -44,7 +44,7 @@ public class OpenAIServiceTests
         string input = "";
         string expected = "";
 
-        string result = OpenAIService.SanitizeName(input);
+        string result = NameSanitizer.SanitizeName(input);
 
         await Assert.That(result).IsEqualTo(expected);
     }
@@ -52,7 +52,7 @@ public class OpenAIServiceTests
     [Test]
     public async Task SanitizeName_HandlesNullString()
     {
-        await Assert.That(() => OpenAIService.SanitizeName(null!)).Throws<ArgumentNullException>();
+        await Assert.That(() => NameSanitizer.SanitizeName(null!)).Throws<ArgumentNullException>();
     }
 
     [Test]
@@ -61,8 +61,8 @@ public class OpenAIServiceTests
         string input = "NameWith@Special#Characters";
         string expected = "NameWithSpecialCharacters";
 
-        string result1 = OpenAIService.SanitizeName(input);
-        string result2 = OpenAIService.SanitizeName(input);
+        string result1 = NameSanitizer.SanitizeName(input);
+        string result2 = NameSanitizer.SanitizeName(input);
 
         await Assert.That(result1).IsEqualTo(expected);
         await Assert.That(result2).IsEqualTo(expected);
@@ -74,7 +74,7 @@ public class OpenAIServiceTests
         string input = "Valid_Name-123";
         string expected = "Valid_Name-123";
 
-        string result = OpenAIService.SanitizeName(input);
+        string result = NameSanitizer.SanitizeName(input);
 
         await Assert.That(result).IsEqualTo(expected);
     }
