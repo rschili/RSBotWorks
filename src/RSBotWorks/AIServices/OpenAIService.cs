@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection.Metadata.Ecma335;
 using System.Text;
 using System.Text.Json;
@@ -19,22 +20,16 @@ public enum OpenAIModel
     GPT41
 }
 
-public class OpenAIService
+public class OpenAIService : BaseAIService
 {
     public OpenAIResponseClient Client { get; private init; }
-    public ILogger Logger { get; private init; }
-
-    public ToolHub ToolHub { get; private init; }
-
-    public LeakyBucketRateLimiter RateLimiter { get; private init; } = new(10, 60);
     
     private List<ResponseTool> _tools;
 
-    public OpenAIService(string apiKey, ToolHub toolhub, OpenAIModel model = OpenAIModel.GPT41, ILogger<OpenAIService>? logger = null)
+    [SetsRequiredMembers]
+    public OpenAIService(string apiKey, ToolHub toolhub, string model, ILogger? logger = null) : base(toolhub, logger)
     {
-        Logger = logger ?? NullLogger<OpenAIService>.Instance;
-        ToolHub = toolhub ?? throw new ArgumentNullException(nameof(toolhub));
-        Client = new OpenAIResponseClient(model: ModelToString(model), apiKey: apiKey);
+        Client = new OpenAIResponseClient(model, apiKey);
         _tools = GenerateOpenAITools(toolhub.Tools, toolhub.EnableWebSearch);
 
         // This is so silly, but the field is get-only
@@ -43,18 +38,6 @@ public class OpenAIService
             DefaultOptions.Tools.Add(tool);
             StructuredJsonArrayOptions.Tools.Add(tool);
         }
-    }
-
-    private static string ModelToString(OpenAIModel model)
-    {
-        return model switch
-        {
-            OpenAIModel.GPT4o => "gpt-4o",
-            OpenAIModel.GPT41 => "gpt-4.1",
-            OpenAIModel.O1 => "o1",
-            OpenAIModel.O3Mini => "o3-mini",
-            _ => throw new ArgumentOutOfRangeException(nameof(model), model, null)
-        };
     }
 
     private static List<ResponseTool> GenerateOpenAITools(ImmutableArray<Tool> tools, bool enableWebSearch)
@@ -153,7 +136,7 @@ public class OpenAIService
         }
     };
 
-    public async Task<string?> GenerateResponseAsync(string systemPrompt, IEnumerable<AIMessage> inputs, ResponseCreationOptions? options = null)
+    public override async Task<string?> GenerateResponseAsync(string systemPrompt, IEnumerable<AIMessage> inputs, ResponseKind kind = ResponseKind.Default)
     {
         if (!RateLimiter.Leak())
             return null;
@@ -185,6 +168,14 @@ public class OpenAIService
             }
         }
 
+        ResponseCreationOptions options = kind switch
+        {
+            ResponseKind.Default => DefaultOptions,
+            ResponseKind.StructuredJsonArray => StructuredJsonArrayOptions,
+            ResponseKind.NoTools => PlainTextWithNoToolsOptions,
+            _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unknown response kind")
+        };
+
         try
         {
             return await GenerateResponseInternalAsync(instructions, 1, 0, options).ConfigureAwait(false);
@@ -196,7 +187,7 @@ public class OpenAIService
         }
     }
 
-    public async Task<string> GenerateResponseInternalAsync(List<ResponseItem> instructions, int depth = 1, int toolCalls = 0, ResponseCreationOptions? options = null)
+    private async Task<string> GenerateResponseInternalAsync(List<ResponseItem> instructions, int depth = 1, int toolCalls = 0, ResponseCreationOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(instructions, nameof(instructions));
         if (depth > 3)

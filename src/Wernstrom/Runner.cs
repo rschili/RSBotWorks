@@ -16,7 +16,7 @@ public class Runner : IDisposable
     public ILogger Logger { get; init; }
     private Config Config { get; init; }
     private SqliteMessageCache MessageCache { get; init; }
-    private OpenAIService OpenAIService { get; init; }
+    private IAIService AIService { get; init; }
 
     private ProbabilityRamp EmojiProbabilityRamp { get; init; } = new(0, 0.4, TimeSpan.FromMinutes(40));
 
@@ -78,12 +78,12 @@ public class Runner : IDisposable
         In diesem Chat bist du der Assistent. Die Nachrichten in der Chathistorie enthalten den Benutzernamen als Kontext im folgenden Format vorangestellt: `[[Name]]:`.
         """;
 
-    public Runner(ILogger<Runner> logger, Config config, SqliteMessageCache messageCache, OpenAIService openAIService)
+    public Runner(ILogger<Runner> logger, Config config, SqliteMessageCache messageCache, IAIService aiService)
     {
         Logger = logger ?? throw new ArgumentNullException(nameof(logger));
         Config = config ?? throw new ArgumentNullException(nameof(config));
         MessageCache = messageCache ?? throw new ArgumentNullException(nameof(messageCache));
-        OpenAIService = openAIService ?? throw new ArgumentNullException(nameof(openAIService));
+        AIService = aiService ?? throw new ArgumentNullException(nameof(aiService));
         Emotes = new(() =>
         {
             var emotes = Client.Guilds.SelectMany(g => g.Emotes)
@@ -330,7 +330,7 @@ public class Runner : IDisposable
             {
                 prompt += $"\nDeine aktuelle Aktivität: {CurrentActivity}";
             }
-            var response = await OpenAIService.GenerateResponseAsync(prompt, messages).ConfigureAwait(false);
+            var response = await AIService.GenerateResponseAsync(prompt, messages).ConfigureAwait(false);
             if (string.IsNullOrEmpty(response))
             {
                 Logger.LogWarning($"OpenAI did not return a response to: {arg.Content.Substring(0, Math.Min(arg.Content.Length, 100))}");
@@ -370,7 +370,7 @@ public class Runner : IDisposable
     internal async Task<List<string>> CreateNewStatusMessages()
     {
         List<string> statusMessages = [];
-        var response = await OpenAIService.GenerateResponseAsync(STATUS_INSTRUCTION, new List<AIMessage>(), OpenAIService.StructuredJsonArrayOptions).ConfigureAwait(false);
+        var response = await AIService.GenerateResponseAsync(STATUS_INSTRUCTION, new List<AIMessage>(), ResponseKind.StructuredJsonArray).ConfigureAwait(false);
         // response should be a json array
         if (string.IsNullOrEmpty(response))
         {
@@ -560,7 +560,7 @@ public class Runner : IDisposable
         LastEmoji = now;
         var history = await MessageCache.GetLastDiscordMessagesForChannelAsync(arg.Channel.Id, 4).ConfigureAwait(false);
         var messages = history.Select(message => new AIMessage(message.IsFromSelf, message.Body, message.UserLabel)).ToList();
-        var reaction = await OpenAIService.GenerateResponseAsync(REACTION_INSTRUCTION(EmojiJsonList.Value), messages, OpenAIService.PlainTextWithNoToolsOptions).ConfigureAwait(false);
+        var reaction = await AIService.GenerateResponseAsync(REACTION_INSTRUCTION(EmojiJsonList.Value), messages, ResponseKind.NoTools).ConfigureAwait(false);
         if (string.IsNullOrEmpty(reaction))
         {
             Logger.LogWarning("OpenAI did not return a reaction for the message: {Message}", arg.Content.Substring(0, Math.Min(arg.Content.Length, 100)));

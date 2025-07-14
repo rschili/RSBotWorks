@@ -24,7 +24,7 @@ public class OpenAITests
             return;
         }
 
-        var aiService = new OpenAIService(openAiKey, new ToolHub());
+        var aiService = AIServiceFactory.CreateService(AIModel.GPT41, openAiKey, new ToolHub());
 
         List<AIMessage> messages = new()
         {
@@ -64,7 +64,7 @@ public class OpenAITests
             httpClientFactory,
             null,
             openWeatherMapKey));
-        var aiService = new OpenAIService(openAiKey, toolService);
+        var aiService = AIServiceFactory.CreateService(AIModel.GPT41, openAiKey, toolService);
 
         List<AIMessage> messages = new()
         {
@@ -92,7 +92,7 @@ public class OpenAITests
 
         var toolHub = new ToolHub();
         toolHub.EnableWebSearch = true;
-        var aiService = new OpenAIService(openAiKey, toolHub);
+        var aiService = AIServiceFactory.CreateService(AIModel.GPT41, openAiKey, toolHub);
 
         List<AIMessage> messages = new()
         {
@@ -132,7 +132,7 @@ public class OpenAITests
         var httpClientFactory = Substitute.For<IHttpClientFactory>();
         httpClientFactory.CreateClient(Arg.Any<string>()).Returns(_ => new HttpClient());
         toolHub.RegisterToolProvider(new HomeAssistantToolProvider(httpClientFactory, homeAssistantUrl, homeAssistantToken));
-        var aiService = new OpenAIService(openAiKey, toolHub);
+        var aiService = AIServiceFactory.CreateService(AIModel.GPT41, openAiKey, toolHub);
 
         List<AIMessage> messages = new()
         {

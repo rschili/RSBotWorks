@@ -27,7 +27,7 @@ public class DiscordTests
         await Assert.That(sql).IsNotNull();
 
         var toolService = new ToolHub();
-        var aiService = new OpenAIService(openAiKey, toolService);
+        var aiService = AIServiceFactory.CreateService(AIModel.GPT41, openAiKey, toolService);
 
         var config = Wernstrom.Config.LoadFromEnvFile();
         await Assert.That(config).IsNotNull();

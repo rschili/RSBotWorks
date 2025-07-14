@@ -13,7 +13,7 @@ public class Runner
     private Config Config { get; init; }
     private IHttpClientFactory HttpClientFactory { get; init; }
     private SqliteMessageCache MessageCache { get; init; }
-    private OpenAIService OpenAIService { get; init; }
+    private IAIService AIService { get; init; }
 
     public bool IsRunning => _client != null;
 
@@ -54,13 +54,13 @@ public class Runner
         return string.Format(DEFAULT_INSTRUCTION, topic);
     }
 
-    public Runner(ILogger<Runner> logger, Config config, IHttpClientFactory httpClientFactory, SqliteMessageCache messageCache, OpenAIService openAIService)
+    public Runner(ILogger<Runner> logger, Config config, IHttpClientFactory httpClientFactory, SqliteMessageCache messageCache, IAIService aiService)
     {
         Logger = logger ?? throw new ArgumentNullException(nameof(logger));
         Config = config ?? throw new ArgumentNullException(nameof(config));
         HttpClientFactory = httpClientFactory ?? throw new ArgumentNullException(nameof(httpClientFactory));
         MessageCache = messageCache ?? throw new ArgumentNullException(nameof(messageCache));
-        OpenAIService = openAIService ?? throw new ArgumentNullException(nameof(openAIService));
+        AIService = aiService ?? throw new ArgumentNullException(nameof(aiService));
     }
 
     public async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -184,7 +184,7 @@ public class Runner
         var history = await MessageCache.GetLastMatrixMessageAndOwnAsync(channel.Id).ConfigureAwait(false);
         var messages = history.Select(message => new AIMessage(message.IsFromSelf, message.Body, message.UserLabel)).ToList();
         string instruction = GetDailyInstruction();
-        var response = await OpenAIService.GenerateResponseAsync(instruction, messages).ConfigureAwait(false);
+        var response = await AIService.GenerateResponseAsync(instruction, messages).ConfigureAwait(false);
         if (string.IsNullOrEmpty(response))
         {
             Logger.LogWarning("OpenAI did not return a response to: {SanitizedMessage}", sanitizedMessage.Length > 50 ? sanitizedMessage[..50] : sanitizedMessage);

@@ -47,10 +47,10 @@ toolHub.RegisterToolProvider(newsProvider);
 toolHub.RegisterToolProvider(homeAssistantProvider);
 toolHub.EnableWebSearch = true; // Enable web search by default
 
-var openAIService = new OpenAIService(
+var openAIService = AIServiceFactory.CreateService(
+    AIModel.GPT41,
     config.OpenAiApiKey,
     toolHub,
-    OpenAIModel.GPT41,
     loggerFactory.CreateLogger<OpenAIService>());
 
 try
