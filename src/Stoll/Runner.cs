@@ -160,7 +160,7 @@ public class Runner
 
             var isFromSelf = message.Sender.User.UserId.Full == _client!.CurrentUser.Full;
             await MessageCache.AddMatrixMessageAsync(message.EventId, message.Timestamp,
-                message.Sender.User.UserId.Full, cachedUser.CanonicalName, sanitizedMessage, isFromSelf,
+                message.Sender.User.UserId.Full, cachedUser.SanitizedName, sanitizedMessage, isFromSelf,
                 message.Room.RoomId.Full).ConfigureAwait(false);
             // The bot should never respond to itself.
             if (isFromSelf)
@@ -200,8 +200,8 @@ public class Runner
     private static ChannelUser<string> GenerateChannelUser(RoomUser user)
     {
         var displayName = user.GetDisplayName();
-        var openAIName = OpenAIService.IsValidName(displayName) ? displayName : OpenAIService.SanitizeName(displayName);
-        return new ChannelUser<string>(user.User.UserId.Full, displayName, openAIName);
+        var sanitizedName = OpenAIService.IsValidName(displayName) ? displayName : OpenAIService.SanitizeName(displayName);
+        return new ChannelUser<string>(user.User.UserId.Full, displayName, sanitizedName);
     }
 
     private string? SanitizeMessage(ReceivedTextMessage message, JoinedTextChannel<string> cachedChannel, out bool isCurrentUserMentioned)
@@ -228,7 +228,7 @@ public class Runner
             {
                 wasMentioned = true;
             }
-            return user != null ? $"[[{user.CanonicalName}]]" : match.Value;
+            return user != null ? $"[[{user.SanitizedName}]]" : match.Value;
         });
 
         if (wasMentioned)
@@ -270,7 +270,7 @@ public class Runner
         return Regex.Replace(response, mentionPattern, match =>
         {
             var canonicalName = match.Groups[1].Value;
-            var user = cachedChannel.Users.FirstOrDefault(u => string.Equals(u.CanonicalName, canonicalName, StringComparison.OrdinalIgnoreCase));
+            var user = cachedChannel.Users.FirstOrDefault(u => string.Equals(u.SanitizedName, canonicalName, StringComparison.OrdinalIgnoreCase));
             if (user != null)
             {
                 if (UserId.TryParse(user.Id, out var userId) && userId != null)

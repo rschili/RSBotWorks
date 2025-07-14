@@ -25,7 +25,7 @@ public class JoinedTextChannel<T>
     public ChannelUser<T>? GetUser(T userId) => Users.FirstOrDefault(u => EqualityComparer<T>.Default.Equals(u.Id, userId));
 }
 
-public record ChannelUser<TUserId>(TUserId Id, string Name, string CanonicalName)
+public record ChannelUser<TUserId>(TUserId Id, string Name, string SanitizedName)
 {
-    public override string ToString() => CanonicalName;
+    public override string ToString() => SanitizedName;
 }

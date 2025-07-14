@@ -301,7 +301,7 @@ public class Runner : IDisposable
             sanitizedMessage = sanitizedMessage[..300];
 
         var isFromSelf = arg.Author.Id == Client.CurrentUser.Id;
-        await MessageCache.AddDiscordMessageAsync(arg.Id, arg.Timestamp, arg.Author.Id, cachedUser.CanonicalName, sanitizedMessage, isFromSelf, arg.Channel.Id).ConfigureAwait(false);
+        await MessageCache.AddDiscordMessageAsync(arg.Id, arg.Timestamp, arg.Author.Id, cachedUser.SanitizedName, sanitizedMessage, isFromSelf, arg.Channel.Id).ConfigureAwait(false);
         // The bot should never respond to itself.
         if (isFromSelf)
             return;
@@ -437,7 +437,7 @@ public class Runner : IDisposable
                 channel.Users = channel.Users.Add(userInChannel);
             }
 
-            var internalTag = $"[[{userInChannel.CanonicalName}]]";
+            var internalTag = $"[[{userInChannel.SanitizedName}]]";
 
             text.Remove(tag.Index + indexOffset, tag.Length);
             text.Insert(tag.Index + indexOffset, internalTag);
@@ -455,7 +455,7 @@ public class Runner : IDisposable
         foreach (Match match in matches)
         {
             var userName = match.Groups["name"].Value;
-            var cachedUser = channel.Users.FirstOrDefault(u => string.Equals(u.CanonicalName, userName, StringComparison.OrdinalIgnoreCase));
+            var cachedUser = channel.Users.FirstOrDefault(u => string.Equals(u.SanitizedName, userName, StringComparison.OrdinalIgnoreCase));
             if (cachedUser == null)
             {
                 Logger.LogWarning("User not found for replacing tag: {UserName}", userName);
@@ -515,8 +515,8 @@ public class Runner : IDisposable
     private ChannelUser<ulong> GenerateChannelUser(IUser user)
     {
         var displayName = GetDisplayName(user);
-        var openAIName = OpenAIService.IsValidName(displayName) ? displayName : OpenAIService.SanitizeName(displayName);
-        return new ChannelUser<ulong>(user.Id, displayName, openAIName);
+        var sanitizedName = OpenAIService.IsValidName(displayName) ? displayName : OpenAIService.SanitizeName(displayName);
+        return new ChannelUser<ulong>(user.Id, displayName, sanitizedName);
     }
 
     private static readonly ImmutableHashSet<string> CoffeeKeywords = ImmutableHashSet.Create(
