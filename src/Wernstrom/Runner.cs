@@ -316,7 +316,7 @@ public class Runner : IDisposable
             _ => string.Empty
         };
 
-        string sanitizedMessage = ReplaceDiscordTags(arg, cachedChannel);
+        string sanitizedMessage = ReplaceDiscordTags(arg.Tags, inputMessage, cachedChannel);
         int maxLength = hasAttachments ? 2000 : 1000;
         if (sanitizedMessage.Length > maxLength)
             sanitizedMessage = sanitizedMessage[..maxLength];
@@ -433,10 +433,9 @@ public class Runner : IDisposable
         return false;
     }
 
-    private string ReplaceDiscordTags(IMessage msg, JoinedTextChannel<ulong> channel)
+    private string ReplaceDiscordTags(IReadOnlyCollection<ITag> tags, string message, JoinedTextChannel<ulong> channel)
     {
-        var text = new StringBuilder(msg.Content);
-        var tags = msg.Tags;
+        var text = new StringBuilder(message);
         int indexOffset = 0;
         foreach (var tag in tags)
         {
@@ -616,7 +615,7 @@ public class Runner : IDisposable
     {
         try
         {
-            var response = await AIService.DescribeImageAsync(GENERIC_INSTRUCTION, imageBytes, mimeType).ConfigureAwait(false);
+            var response = await AIService.DescribeImageAsync(IMAGE_INSTRUCTION, imageBytes, mimeType).ConfigureAwait(false);
             if (string.IsNullOrEmpty(response))
             {
                 Logger.LogWarning("OpenAI did not return a description for the image.");

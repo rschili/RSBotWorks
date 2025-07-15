@@ -7,6 +7,7 @@ using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.VisualBasic;
+using OpenAI.Chat;
 using OpenAI.Responses;
 using RSBotWorks.Tools;
 using RSMatrix.Http;
@@ -17,12 +18,16 @@ public class OpenAIService : BaseAIService
 {
     public OpenAIResponseClient Client { get; private init; }
 
+    // ResponseClient cannot use binary images directly, but ChatClient can
+    public ChatClient ChatClient { get; private init; }
+
     private List<ResponseTool> _tools;
 
     [SetsRequiredMembers]
     public OpenAIService(string apiKey, ToolHub toolhub, string model, ILogger? logger = null) : base(toolhub, logger)
     {
         Client = new OpenAIResponseClient(model, apiKey);
+        ChatClient = new ChatClient("gpt-4o", apiKey);
         _tools = GenerateOpenAITools(toolhub.Tools, toolhub.EnableWebSearch);
 
         // This is so silly, but the field is get-only
@@ -127,6 +132,13 @@ public class OpenAIService : BaseAIService
         {
             TextFormat = ResponseTextFormat.CreateTextFormat()
         }
+    };
+
+    public static readonly ChatCompletionOptions ChatImageGenerationOptions = new()
+    {
+        MaxOutputTokenCount = 1000,
+        StoredOutputEnabled = false,
+        ResponseFormat = ChatResponseFormat.CreateTextFormat(),
     };
 
     public override async Task<string?> GenerateResponseAsync(string systemPrompt, IEnumerable<AIMessage> inputs, ResponseKind kind = ResponseKind.Default)
@@ -257,16 +269,23 @@ public class OpenAIService : BaseAIService
         if (!RateLimiter.Leak())
             return "Rate limit exceeded. Please try again later.";
 
-        var instructions = ResponseItem.CreateDeveloperMessageItem(
+        var imageData = BinaryData.FromBytes(imageBytes);
+        var instructions = new UserChatMessage(
             [
-                ResponseContentPart.CreateInputTextPart(systemPrompt ?? "Please describe this picture for me"),
-                ResponseContentPart.CreateInputImagePart(BinaryData.FromBytes(imageBytes), mimeType, ResponseImageDetailLevel.Low),
+                ChatMessageContentPart.CreateTextPart(systemPrompt),
+                ChatMessageContentPart.CreateImagePart(imageData, mimeType),
             ]);
 
         try
         {
-            var result = await Client.CreateResponseAsync([instructions], PlainTextWithNoToolsOptions).ConfigureAwait(false);
-            return result.Value.GetOutputText() ?? "Keine Beschreibung erhalten.";
+            var result = await ChatClient.CompleteChatAsync([instructions], ChatImageGenerationOptions).ConfigureAwait(false);
+            var text = result.Value.Content[0].Text;
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                Logger.LogWarning("OpenAI image description returned empty response.");
+                return "Keine Beschreibung für das Bild generiert.";
+            }
+            return text;
         }
         catch (Exception ex)
         {
