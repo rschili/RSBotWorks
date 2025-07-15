@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Collections.Immutable;
+using System.Reflection.Metadata.Ecma335;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -27,6 +28,8 @@ public class Runner : IDisposable
     public bool IsRunning { get; private set; }
 
     private DiscordSocketClient? _client;
+
+    private DiscordImageHandler ImageHandler { get; init; }
 
     public DiscordSocketClient Client => _client ?? throw new InvalidOperationException("Discord client is not initialized.");
 
@@ -61,6 +64,7 @@ public class Runner : IDisposable
         Verwende die Syntax [[Name]], um Benutzer anzusprechen. Antworten ohne Erwähnung sind oft auch ausreichend.
         In diesem Chat bist du der Assistent. Die Nachrichten in der Chathistorie enthalten den Benutzernamen als Kontext im folgenden Format vorangestellt: `[[Name]]:`.
         Antworte direkt auf Nachrichten, ohne deinen Namen voranzustellen. Generiere eine Antwort auf die letzte erhaltene Nachricht, die vorherigen bekommst du als Kontext (Die evtl enthaltenen Assistent Nachrichten stammen von dir selbst).
+        Wenn eine Nachricht ein Bild enthält, bekommst du anstelle des Bildes eine Beschreibung des Inhaltes in der folgenden Form eingebettet: [IMG:Name]Beschreibung des Bildes[/IMG].
         """;
 
     internal const string STATUS_INSTRUCTION = $"""
@@ -78,12 +82,18 @@ public class Runner : IDisposable
         In diesem Chat bist du der Assistent. Die Nachrichten in der Chathistorie enthalten den Benutzernamen als Kontext im folgenden Format vorangestellt: `[[Name]]:`.
         """;
 
-    public Runner(ILogger<Runner> logger, Config config, SqliteMessageCache messageCache, IAIService aiService)
+    internal const string IMAGE_INSTRUCTION = $"""
+        Beschreibe das Bild, das du übergeben bekommst prägnant und präzise in 1-3 Sätzen (je nach Menge der Details im Bild).
+        Ich werde den generierten Text anstelle des Originalbildes als Kontext für weitere Aufrufe übergeben.
+        """;
+
+    public Runner(ILogger<Runner> logger, IHttpClientFactory httpClientFactory, Config config, SqliteMessageCache messageCache, IAIService aiService)
     {
         Logger = logger ?? throw new ArgumentNullException(nameof(logger));
         Config = config ?? throw new ArgumentNullException(nameof(config));
         MessageCache = messageCache ?? throw new ArgumentNullException(nameof(messageCache));
         AIService = aiService ?? throw new ArgumentNullException(nameof(aiService));
+        ImageHandler = new DiscordImageHandler(httpClientFactory, this.DescribeImageAsync, logger);
         Emotes = new(() =>
         {
             var emotes = Client.Guilds.SelectMany(g => g.Emotes)
@@ -292,13 +302,24 @@ public class Runner : IDisposable
             cachedUser = GenerateChannelUser(user);
             cachedChannel.Users = cachedChannel.Users.Add(cachedUser);
         }
+        string? attachments = await ImageHandler.DescribeMessageAttachments(arg).ConfigureAwait(false);
+        bool hasContent = !string.IsNullOrWhiteSpace(arg.Content);
+        bool hasAttachments = !string.IsNullOrWhiteSpace(attachments);
+        if (!hasContent && !hasAttachments)
+            return; // nothing to process
 
-        if (string.IsNullOrWhiteSpace(arg.Content))
-            return; // ignore images and similar for now
+        string inputMessage = (hasContent, hasAttachments) switch
+        {
+            (true, true) => $"{arg.Content}\n{attachments}",
+            (true, false) => arg.Content,
+            (false, true) => attachments!,
+            _ => string.Empty
+        };
 
         string sanitizedMessage = ReplaceDiscordTags(arg, cachedChannel);
-        if (sanitizedMessage.Length > 300)
-            sanitizedMessage = sanitizedMessage[..300];
+        int maxLength = hasAttachments ? 2000 : 1000;
+        if (sanitizedMessage.Length > maxLength)
+            sanitizedMessage = sanitizedMessage[..maxLength];
 
         var isFromSelf = arg.Author.Id == Client.CurrentUser.Id;
         await MessageCache.AddDiscordMessageAsync(arg.Id, arg.Timestamp, arg.Author.Id, cachedUser.SanitizedName, sanitizedMessage, isFromSelf, arg.Channel.Id).ConfigureAwait(false);
@@ -345,6 +366,7 @@ public class Runner : IDisposable
             Logger.LogError(ex, "An error occurred during the OpenAI call. Message: {Message}", arg.Content.Substring(0, Math.Min(arg.Content.Length, 100)));
         }
     }
+
 
     private async Task UpdateStatusAsync()
     {
@@ -587,6 +609,25 @@ public class Runner : IDisposable
         catch
         {
             Logger.LogWarning("Could not add reaction: {Reaction}", reaction);
+        }
+    }
+
+    private async Task<string> DescribeImageAsync(byte[] imageBytes, string mimeType)
+    {
+        try
+        {
+            var response = await AIService.DescribeImageAsync(GENERIC_INSTRUCTION, imageBytes, mimeType).ConfigureAwait(false);
+            if (string.IsNullOrEmpty(response))
+            {
+                Logger.LogWarning("OpenAI did not return a description for the image.");
+                return "Sorry, I could not describe the image.";
+            }
+            return response;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "An error occurred while describing an image.");
+            return "Sorry, I could not describe the image due to an error.";
         }
     }
 }

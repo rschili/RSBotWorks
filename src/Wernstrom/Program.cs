@@ -58,6 +58,7 @@ try
     var messageCache = await SqliteMessageCache.CreateAsync(config.SqliteDbPath).ConfigureAwait(false);
     using var runner = new Runner(
         loggerFactory.CreateLogger<Runner>(),
+        httpClientFactory,
         config,
         messageCache,
         openAIService);

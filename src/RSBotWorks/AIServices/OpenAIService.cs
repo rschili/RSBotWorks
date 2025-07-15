@@ -6,24 +6,17 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.VisualBasic;
 using OpenAI.Responses;
 using RSBotWorks.Tools;
 using RSMatrix.Http;
 
 namespace RSBotWorks;
 
-public enum OpenAIModel
-{
-    GPT4o,
-    O1,
-    O3Mini,
-    GPT41
-}
-
 public class OpenAIService : BaseAIService
 {
     public OpenAIResponseClient Client { get; private init; }
-    
+
     private List<ResponseTool> _tools;
 
     [SetsRequiredMembers]
@@ -43,12 +36,12 @@ public class OpenAIService : BaseAIService
     private static List<ResponseTool> GenerateOpenAITools(ImmutableArray<Tool> tools, bool enableWebSearch)
     {
         var oaiTools = new List<ResponseTool>();
-        
+
         foreach (var tool in tools)
         {
             var properties = new Dictionary<string, object>();
             var required = new List<string>();
-            
+
             foreach (var parameter in tool.Parameters)
             {
                 properties[parameter.Name] = new
@@ -56,35 +49,35 @@ public class OpenAIService : BaseAIService
                     type = parameter.Type.ToLowerInvariant(),
                     description = parameter.Description
                 };
-                
+
                 if (parameter.IsRequired)
                 {
                     required.Add(parameter.Name);
                 }
             }
-            
+
             var schema = new
             {
                 type = "object",
                 properties,
                 required = required.ToArray()
             };
-            
-            var schemaJson = properties.Count > 0 ? JsonSerializer.Serialize(schema, new JsonSerializerOptions 
-            { 
-                WriteIndented = false 
+
+            var schemaJson = properties.Count > 0 ? JsonSerializer.Serialize(schema, new JsonSerializerOptions
+            {
+                WriteIndented = false
             }) : "{}";
-            
+
             var responseTool = ResponseTool.CreateFunctionTool(
                 functionName: tool.Name,
                 functionDescription: tool.Description,
                 functionParameters: BinaryData.FromString(schemaJson)
             );
-            
+
             oaiTools.Add(responseTool);
         }
-        
-        if(enableWebSearch)
+
+        if (enableWebSearch)
             oaiTools.Add(ResponseTool.CreateWebSearchTool()); // Add web search tool by default
         return oaiTools;
     }
@@ -257,6 +250,29 @@ public class OpenAIService : BaseAIService
         }
         var response = await ToolHub.CallAsync(functionCall.FunctionName, argsDict);
         instructions.Add(ResponseItem.CreateFunctionCallOutputItem(functionCall.CallId, response));
+    }
+    
+    public override async Task<string> DescribeImageAsync(string systemPrompt, byte[] imageBytes, string mimeType)
+    {
+        if (!RateLimiter.Leak())
+            return "Rate limit exceeded. Please try again later.";
+
+        var instructions = ResponseItem.CreateDeveloperMessageItem(
+            [
+                ResponseContentPart.CreateInputTextPart(systemPrompt ?? "Please describe this picture for me"),
+                ResponseContentPart.CreateInputImagePart(BinaryData.FromBytes(imageBytes), mimeType, ResponseImageDetailLevel.Low),
+            ]);
+
+        try
+        {
+            var result = await Client.CreateResponseAsync([instructions], PlainTextWithNoToolsOptions).ConfigureAwait(false);
+            return result.Value.GetOutputText() ?? "Keine Beschreibung erhalten.";
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "An error occurred during the OpenAI image description call.");
+            return $"Fehler bei der Kommunikation mit OpenAI: {ex.Message}";
+        }
     }
 }
 

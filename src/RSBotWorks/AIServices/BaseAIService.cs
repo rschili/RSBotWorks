@@ -16,6 +16,7 @@ public enum ResponseKind
 public interface IAIService
 {
     Task<string?> GenerateResponseAsync(string systemPrompt, IEnumerable<AIMessage> inputs, ResponseKind kind = ResponseKind.Default);
+    Task<string> DescribeImageAsync(string systemPrompt, byte[] imageBytes, string mimeType);
 }
 
 public abstract class BaseAIService : IAIService
@@ -34,4 +35,6 @@ public abstract class BaseAIService : IAIService
     protected LeakyBucketRateLimiter RateLimiter { get; private init; } = new(10, 60);
 
     public abstract Task<string?> GenerateResponseAsync(string systemPrompt, IEnumerable<AIMessage> inputs, ResponseKind kind = ResponseKind.Default);
+
+    public abstract Task<string> DescribeImageAsync(string systemPrompt, byte[] imageBytes, string mimeType);
 }

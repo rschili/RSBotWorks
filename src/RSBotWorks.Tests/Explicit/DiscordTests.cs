@@ -31,7 +31,8 @@ public class DiscordTests
 
         var config = Wernstrom.Config.LoadFromEnvFile();
         await Assert.That(config).IsNotNull();
-        var discordService = new Wernstrom.Runner(NullLogger<Wernstrom.Runner>.Instance, config, sql, aiService);
+        var httpClientFactory = Substitute.For<IHttpClientFactory>();
+        var discordService = new Wernstrom.Runner(NullLogger<Wernstrom.Runner>.Instance, httpClientFactory, config, sql, aiService);
 
         var statusMessages = await discordService.CreateNewStatusMessages();
         await Assert.That(statusMessages).IsNotNull();
