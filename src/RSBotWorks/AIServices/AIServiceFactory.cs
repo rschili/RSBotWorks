@@ -22,13 +22,13 @@ public record AIModel(AIProvider Provider, string ModelName)
 
 public static class AIServiceFactory
 {
-    public static IAIService CreateService(AIModel model, string apiKey, ToolHub toolHub, ILogger? logger = null)
+    public static IAIService CreateService(AIModel model, string apiKey, ToolHub toolHub, IHttpClientFactory? httpClientFactory, ILogger? logger = null)
     {
         return model.Provider switch
         {
             AIProvider.OpenAI => new OpenAIService(apiKey, toolHub, model.ModelName, logger),
-            //AIProvider.Claude => new ClaudeService(apiKey, toolHub, model, logger),
-            //AIProvider.MoonshotAI => new MoonshotAIService(apiKey, toolHub, model, logger),
+            AIProvider.Claude => new ClaudeAIService(apiKey, toolHub, model.ModelName, httpClientFactory ?? throw new ArgumentNullException("httpClientFactory is required for ClaudeAIService"), logger),
+            AIProvider.MoonshotAI => new MoonshotAIService(apiKey, toolHub, model.ModelName, httpClientFactory ?? throw new ArgumentNullException("httpClientFactory is required for MoonshotAIService"), logger),
             _ => throw new NotImplementedException($"AI provider {model.Provider} is not implemented.")
         };
     }

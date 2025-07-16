@@ -51,6 +51,7 @@ var openAIService = AIServiceFactory.CreateService(
     AIModel.GPT41,
     config.OpenAiApiKey,
     toolHub,
+    httpClientFactory,
     loggerFactory.CreateLogger<OpenAIService>());
 
 try
