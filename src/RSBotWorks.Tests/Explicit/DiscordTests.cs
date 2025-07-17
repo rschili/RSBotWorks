@@ -27,11 +27,11 @@ public class DiscordTests
         await Assert.That(sql).IsNotNull();
 
         var toolService = new ToolHub();
-        var aiService = AIServiceFactory.CreateService(AIModel.GPT41, openAiKey, toolService);
+        var httpClientFactory = Substitute.For<IHttpClientFactory>();
+        var aiService = AIServiceFactory.CreateService(AIModel.GPT41, openAiKey, toolService, httpClientFactory);
 
         var config = Wernstrom.Config.LoadFromEnvFile();
         await Assert.That(config).IsNotNull();
-        var httpClientFactory = Substitute.For<IHttpClientFactory>();
         var discordService = new Wernstrom.Runner(NullLogger<Wernstrom.Runner>.Instance, httpClientFactory, config, sql, aiService);
 
         var statusMessages = await discordService.CreateNewStatusMessages();
