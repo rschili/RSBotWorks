@@ -25,6 +25,7 @@ public class ClaudeAIService : BaseAIService
     {
         var client = HttpClientFactory.CreateClient();
         client.DefaultRequestHeaders.Add("x-api-key", ApiKey);
+        client.DefaultRequestHeaders.Add("anthropic-version", "2023-06-01");
         client.DefaultRequestHeaders.Add("Accept", "application/json");
         client.DefaultRequestHeaders.Add("Content-Type", "application/json");
         client.DefaultRequestHeaders.Add("User-Agent", "RSBotWorks/1.0 github.com/rschili chat bot");

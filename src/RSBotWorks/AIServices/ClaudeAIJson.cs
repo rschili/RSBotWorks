@@ -96,3 +96,69 @@ public class ClaudeUsage
     [JsonPropertyName("output_tokens")]
     public int OutputTokens { get; set; }
 }
+
+public enum ClaudeRole
+{
+    [JsonStringEnumMemberName("user")]
+    User,
+    
+    [JsonStringEnumMemberName("assistant")]
+    Assistant
+}
+
+public class ClaudeMessageRequest
+{
+    [JsonPropertyName("model")]
+    public string Model { get; set; } = default!;
+
+    [JsonPropertyName("max_tokens")]
+    public int MaxTokens { get; set; }
+
+    [JsonPropertyName("system")]
+    public List<ClaudeSystemContent>? System { get; set; }
+
+    [JsonPropertyName("messages")]
+    public List<ClaudeRequestMessage> Messages { get; set; } = new();
+
+    [JsonPropertyName("temperature")]
+    public double Temperature { get; set; } = 1.0;
+
+    [JsonPropertyName("tool_choice")]
+    public string? ToolChoice { get; set; } = "auto";
+
+    [JsonPropertyName("tools")]
+    public List<ClaudeTool>? Tools { get; set; } = null;
+}
+
+public class ClaudeSystemContent
+{
+    [JsonPropertyName("type")]
+    public string Type { get; set; } = "text";
+
+    [JsonPropertyName("text")]
+    public string Text { get; set; } = default!;
+}
+
+public class ClaudeRequestMessage
+{
+    [JsonPropertyName("role")]
+    public required ClaudeRole Role { get; set; } = default!;
+
+    [JsonPropertyName("content")]
+    public required string Content { get; set; } = default!;
+}
+
+public class ClaudeTool
+{
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = default!;
+
+    [JsonPropertyName("description")]
+    public string? Description { get; set; }
+
+    /// <summary>
+    ///  JSON schema for the tool input shape that the model will produce in tool_use output content blocks.
+    /// </summary>
+    [JsonPropertyName("input_schema")]
+    public string InputSchema { get; set; } = default!;
+}
