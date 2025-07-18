@@ -31,16 +31,15 @@ public class ClaudeAIService : BaseAIService
         return client;
     }
 
+    public override async Task<string?> DoGenerateResponseAsync(string systemPrompt, IEnumerable<AIMessage> inputs, ResponseKind kind = ResponseKind.Default)
+    {
+        throw new NotImplementedException("ClaudeAIService does not implement DoGenerateResponseAsync yet.");
+    }
+
     public override Task<string> DescribeImageAsync(string systemPrompt, byte[] imageBytes, string mimeType)
     {
         throw new NotImplementedException();
     }
-
-    public override Task<string?> GenerateResponseAsync(string systemPrompt, IEnumerable<AIMessage> inputs, ResponseKind kind = ResponseKind.Default)
-    {
-        throw new NotImplementedException();
-    }
-
 
     public string HandleClaudeResponse(ClaudeMessageResponse response)
     {

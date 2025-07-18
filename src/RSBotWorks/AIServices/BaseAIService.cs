@@ -34,7 +34,20 @@ public abstract class BaseAIService : IAIService
 
     protected LeakyBucketRateLimiter RateLimiter { get; private init; } = new(10, 60);
 
-    public abstract Task<string?> GenerateResponseAsync(string systemPrompt, IEnumerable<AIMessage> inputs, ResponseKind kind = ResponseKind.Default);
+    public async Task<string?> GenerateResponseAsync(string systemPrompt, IEnumerable<AIMessage> inputs, ResponseKind kind = ResponseKind.Default)
+    {
+        if (!RateLimiter.Leak())
+            return null;
+
+        systemPrompt = $"""
+            {systemPrompt}
+            Aktuell ist [{DateTime.Now.ToLongDateString()}, {DateTime.Now.ToLongTimeString()} Uhr. 
+            """;
+
+        return await DoGenerateResponseAsync(systemPrompt, inputs, kind);
+    }
+
+    public abstract Task<string?> DoGenerateResponseAsync(string systemPrompt, IEnumerable<AIMessage> inputs, ResponseKind kind = ResponseKind.Default);
 
     public abstract Task<string> DescribeImageAsync(string systemPrompt, byte[] imageBytes, string mimeType);
 }

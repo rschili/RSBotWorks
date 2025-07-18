@@ -141,16 +141,8 @@ public class OpenAIService : BaseAIService
         ResponseFormat = ChatResponseFormat.CreateTextFormat(),
     };
 
-    public override async Task<string?> GenerateResponseAsync(string systemPrompt, IEnumerable<AIMessage> inputs, ResponseKind kind = ResponseKind.Default)
+    public override async Task<string?> DoGenerateResponseAsync(string systemPrompt, IEnumerable<AIMessage> inputs, ResponseKind kind = ResponseKind.Default)
     {
-        if (!RateLimiter.Leak())
-            return null;
-
-        systemPrompt = $"""
-            {systemPrompt}
-            Aktuell ist [{DateTime.Now.ToLongDateString()}, {DateTime.Now.ToLongTimeString()} Uhr. 
-            """;
-
         var instructions = new List<ResponseItem>() { ResponseItem.CreateDeveloperMessageItem(systemPrompt) };
         foreach (var input in inputs)
         {
