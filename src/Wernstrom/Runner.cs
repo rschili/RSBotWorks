@@ -278,7 +278,7 @@ public class Runner : IDisposable
 
     private async Task MessageReceivedAsync(SocketMessage arg)
     {
-        await UpdateStatusAsync();
+        //await UpdateStatusAsync();
         if (arg.Type != MessageType.Default && arg.Type != MessageType.Reply)
             return;
 
@@ -330,13 +330,13 @@ public class Runner : IDisposable
         if (!ShouldRespond(arg))
         {
             // If we do not respond, we may want to handle reactions like coffee or similar
-            _ = Task.Run(() => HandleReactionsAsync(arg)).ContinueWith(task =>
+            /*_ = Task.Run(() => HandleReactionsAsync(arg)).ContinueWith(task =>
             {
                 if (task.Exception != null)
                 {
                     Logger.LogError(task.Exception, "An error occurred while emoji for a message. Message: {Message}", arg.Content);
                 }
-            }, TaskContinuationOptions.OnlyOnFaulted);
+            }, TaskContinuationOptions.OnlyOnFaulted);*/
             return;
         }
 

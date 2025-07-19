@@ -25,7 +25,8 @@ public class OpenAITests
         }
 
         var httpClientFactory = Substitute.For<IHttpClientFactory>();
-        var aiService = AIServiceFactory.CreateService(AIModel.GPT41, openAiKey, new ToolHub(), httpClientFactory);
+        var credentials = new AIServiceCredentials(openAiKey);
+        var aiService = AIServiceFactory.CreateService(AIModel.GPT41, credentials, new ToolHub(), httpClientFactory);
 
         List<AIMessage> messages = new()
         {
@@ -65,7 +66,8 @@ public class OpenAITests
             httpClientFactory,
             null,
             openWeatherMapKey));
-        var aiService = AIServiceFactory.CreateService(AIModel.GPT41, openAiKey, toolService, httpClientFactory);
+        var credentials = new AIServiceCredentials(openAiKey);
+        var aiService = AIServiceFactory.CreateService(AIModel.GPT41, credentials, toolService, httpClientFactory);
 
         List<AIMessage> messages = new()
         {
@@ -94,7 +96,8 @@ public class OpenAITests
         var toolHub = new ToolHub();
         toolHub.EnableWebSearch = true;
         var httpClientFactory = Substitute.For<IHttpClientFactory>();
-        var aiService = AIServiceFactory.CreateService(AIModel.GPT41, openAiKey, toolHub, httpClientFactory);
+        var credentials = new AIServiceCredentials(openAiKey);
+        var aiService = AIServiceFactory.CreateService(AIModel.GPT41, credentials, toolHub, httpClientFactory);
 
         List<AIMessage> messages = new()
         {
@@ -134,7 +137,8 @@ public class OpenAITests
         var httpClientFactory = Substitute.For<IHttpClientFactory>();
         httpClientFactory.CreateClient(Arg.Any<string>()).Returns(_ => new HttpClient());
         toolHub.RegisterToolProvider(new HomeAssistantToolProvider(httpClientFactory, homeAssistantUrl, homeAssistantToken));
-        var aiService = AIServiceFactory.CreateService(AIModel.GPT41, openAiKey, toolHub, httpClientFactory);
+        var credentials = new AIServiceCredentials(openAiKey);
+        var aiService = AIServiceFactory.CreateService(AIModel.GPT41, credentials, toolHub, httpClientFactory);
 
         List<AIMessage> messages = new()
         {

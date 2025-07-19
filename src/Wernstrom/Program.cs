@@ -47,12 +47,18 @@ toolHub.RegisterToolProvider(newsProvider);
 toolHub.RegisterToolProvider(homeAssistantProvider);
 toolHub.EnableWebSearch = true; // Enable web search by default
 
+var credentials = new AIServiceCredentials(
+    OpenAIKey: config.OpenAiApiKey,
+    ClaudeKey: config.ClaudeApiKey,
+    MoonshotKey: config.MoonshotApiKey
+);
+
 var openAIService = AIServiceFactory.CreateService(
-    AIModel.GPT41,
-    config.OpenAiApiKey,
+    AIModel.MoonshotAIKimiK2,
+    credentials,
     toolHub,
     httpClientFactory,
-    loggerFactory.CreateLogger<OpenAIService>());
+    loggerFactory.CreateLogger<Runner>());
 
 try
 {

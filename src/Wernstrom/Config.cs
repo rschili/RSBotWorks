@@ -3,6 +3,8 @@
 public enum EnvVar
 {
     OPENAI_API_KEY,
+    CLAUDE_API_KEY,
+    MOONSHOT_API_KEY,
     DISCORD_TOKEN,
     SEQ_API_KEY,
     SEQ_URL,
@@ -18,6 +20,8 @@ public class Config
     private readonly Dictionary<EnvVar, string> _variables;
 
     public string OpenAiApiKey => _variables[EnvVar.OPENAI_API_KEY];
+    public string ClaudeApiKey => _variables[EnvVar.CLAUDE_API_KEY];
+    public string MoonshotApiKey => _variables[EnvVar.MOONSHOT_API_KEY];
     public string DiscordToken => _variables[EnvVar.DISCORD_TOKEN];
     public string SeqApiKey => _variables[EnvVar.SEQ_API_KEY];
     public string SeqUrl => _variables[EnvVar.SEQ_URL];

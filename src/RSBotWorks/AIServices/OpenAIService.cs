@@ -286,5 +286,3 @@ public class OpenAIService : BaseAIService
         }
     }
 }
-
-public record AIMessage(bool IsSelf, string Message, string ParticipantName);

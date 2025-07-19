@@ -79,10 +79,44 @@ public class ClaudeMessageResponse : ClaudeResponse
     public ClaudeUsage Usage { get; set; } = default!;
 }
 
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum ClaudeContentType
+{
+    [JsonStringEnumMemberName("text")]
+    Text,
+
+    [JsonStringEnumMemberName("thinking")]
+    Thinking,
+
+    [JsonStringEnumMemberName("redacted_thinking")]
+    RedactedThinking,
+
+    [JsonStringEnumMemberName("tool_use")]
+    ToolUse,
+
+    [JsonStringEnumMemberName("server_tool_use")]
+    ServerToolUse,
+
+    [JsonStringEnumMemberName("web_search_tool_result")]
+    WebSearchToolResult,
+
+    [JsonStringEnumMemberName("code_execution_tool_result")]
+    CodeExecutionToolResult,
+
+    [JsonStringEnumMemberName("mcp_tool_use")]
+    McpToolUse,
+
+    [JsonStringEnumMemberName("mcp_tool_result")]
+    McpToolResult,
+
+    [JsonStringEnumMemberName("container_upload")]
+    ContainerUpload
+}
+
 public class ClaudeContentPart
 {
     [JsonPropertyName("type")]
-    public string Type { get; set; } = default!;
+    public required ClaudeContentType Type { get; set; }
 
     [JsonPropertyName("text")]
     public string? Text { get; set; }
@@ -97,11 +131,12 @@ public class ClaudeUsage
     public int OutputTokens { get; set; }
 }
 
+[JsonConverter(typeof(JsonStringEnumConverter))]
 public enum ClaudeRole
 {
     [JsonStringEnumMemberName("user")]
     User,
-    
+
     [JsonStringEnumMemberName("assistant")]
     Assistant
 }
@@ -115,18 +150,23 @@ public class ClaudeMessageRequest
     public int MaxTokens { get; set; }
 
     [JsonPropertyName("system")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<ClaudeSystemContent>? System { get; set; }
 
     [JsonPropertyName("messages")]
-    public List<ClaudeRequestMessage> Messages { get; set; } = new();
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<ClaudeRequestMessage>? Messages { get; set; } = new();
 
     [JsonPropertyName("temperature")]
-    public double Temperature { get; set; } = 1.0;
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public double Temperature { get; set; }
 
     [JsonPropertyName("tool_choice")]
-    public string? ToolChoice { get; set; } = "auto";
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ToolChoice { get; set; } = null;
 
     [JsonPropertyName("tools")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<ClaudeTool>? Tools { get; set; } = null;
 }
 
@@ -142,7 +182,7 @@ public class ClaudeSystemContent
 public class ClaudeRequestMessage
 {
     [JsonPropertyName("role")]
-    public required ClaudeRole Role { get; set; } = default!;
+    public required ClaudeRole Role { get; set; }
 
     [JsonPropertyName("content")]
     public required string Content { get; set; } = default!;

@@ -19,6 +19,9 @@ public interface IAIService
     Task<string> DescribeImageAsync(string systemPrompt, byte[] imageBytes, string mimeType);
 }
 
+public record AIMessage(bool IsSelf, string Message, string ParticipantName);
+
+
 public abstract class BaseAIService : IAIService
 {
     [SetsRequiredMembers]

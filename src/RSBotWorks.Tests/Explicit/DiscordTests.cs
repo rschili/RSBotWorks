@@ -28,7 +28,8 @@ public class DiscordTests
 
         var toolService = new ToolHub();
         var httpClientFactory = Substitute.For<IHttpClientFactory>();
-        var aiService = AIServiceFactory.CreateService(AIModel.GPT41, openAiKey, toolService, httpClientFactory);
+        var credentials = new AIServiceCredentials(openAiKey);
+        var aiService = AIServiceFactory.CreateService(AIModel.GPT41, credentials, toolService, httpClientFactory);
 
         var config = Wernstrom.Config.LoadFromEnvFile();
         await Assert.That(config).IsNotNull();
