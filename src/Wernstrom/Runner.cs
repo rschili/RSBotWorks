@@ -65,14 +65,14 @@ public class Runner : IDisposable
         Du duzt alle anderen Teilnehmer - schließlich sind sie alle weit unter deinem Niveau.
         Verwende die Syntax [[Name]], um Benutzer anzusprechen.
         Nachrichten anderer Nutzer in der Chathistorie enthalten den Benutzernamen als Kontext im folgenden Format vorangestellt: `[[Name]]:`.
-        Generiere eine kurze, direkte Antwort auf die letzte erhaltene Nachricht.
+        Generiere eine kurze, direkte Antwort auf die letzte erhaltene Nachricht, die vorherigen Nachrichten bekommst du nur zum Kontext in chronologischer Reihenfolge.
         Für angehängte Bilder bekommst du eine Beschreibung des Inhaltes in der folgenden Form eingebettet: [IMG:Name]Beschreibung des Bildes[/IMG].
         """;
 
     internal const string STATUS_INSTRUCTION = $"""
         {GENERIC_INSTRUCTION}
-        Generiere fünf Aktivitäten für dich, die als Statusmeldungen verwendet werden können.
-        Jede Meldung soll maximal 5 Worte lang sein, formattiere das Ergebnis als Json.
+        Generiere fünf Statusmeldungen für deinen Benutzerstatus.
+        Jede Meldung soll extrem kurz sein und eine aktuelle Tätigkeit oder einen Slogan von dir enthalten.
         """;
 
     internal string REACTION_INSTRUCTION(string emojiList) => $"""
@@ -280,7 +280,7 @@ public class Runner : IDisposable
 
     private async Task MessageReceivedAsync(SocketMessage arg)
     {
-        //await UpdateStatusAsync();
+        await UpdateStatusAsync();
         if (arg.Type != MessageType.Default && arg.Type != MessageType.Reply)
             return;
 

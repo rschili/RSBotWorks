@@ -11,7 +11,7 @@ public class DiscordImageHandler
 {
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger _logger;
-    private const int MaxImageWidth = 1920;
+    private const int MaxImageWidth = 784;
     private const int MaxImageHeight = MaxImageWidth;
     private const int MaxFileSizeBytes = 2 * 1024 * 1024; // 2MB limit
 

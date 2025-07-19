@@ -185,7 +185,36 @@ public class ClaudeRequestMessage
     public required ClaudeRole Role { get; set; }
 
     [JsonPropertyName("content")]
-    public required string Content { get; set; } = default!;
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public required List<ClaudeRequestMessageContent>? Content { get; set; } = default!;
+}
+
+public class ClaudeRequestMessageContent
+{
+    [JsonPropertyName("type")]
+    public required string Type { get; set; }
+
+    [JsonPropertyName("text")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Text { get; set; }
+
+    [JsonPropertyName("source")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public ClaudeImageSource? Source { get; set; }
+
+    public static implicit operator ClaudeRequestMessageContent(string text) => new() { Text = text, Type = "text" };
+}
+
+public class ClaudeImageSource
+{
+    [JsonPropertyName("type")]
+    public string Type { get; set; } = "base64";
+
+    [JsonPropertyName("media_type")]
+    public required string MediaType { get; set; }
+
+    [JsonPropertyName("data")]
+    public required string Data { get; set; } = default!;
 }
 
 public class ClaudeTool

@@ -33,9 +33,25 @@ public class ClaudeAIService : BaseAIService
         return client;
     }
 
+    const string ENDPOINT_URL = "https://api.anthropic.com/v1/messages";
+    const string JSON_ARRAY_PREFILL = "{ \"values\": [\"";
+
     public override async Task<string?> DoGenerateResponseAsync(string systemPrompt, IEnumerable<AIMessage> inputs, ResponseKind kind = ResponseKind.Default)
     {
         using var client = CreateClientWithApiKey();
+        if (kind == ResponseKind.StructuredJsonArray)
+        {
+            systemPrompt +=
+            """
+            
+            Please respond with a JSON object that contains a 'values' property that holds an array of strings.
+            For example: { "values": ["value1", "value2", "value3"] }
+            """;
+
+            inputs = [ ..inputs,
+                new AIMessage(true, JSON_ARRAY_PREFILL, "")
+            ];
+        }
         var request = new ClaudeMessageRequest
         {
             Model = Model,
@@ -45,17 +61,18 @@ public class ClaudeAIService : BaseAIService
             {
                 new ClaudeSystemContent { Text = systemPrompt }
             },
-            Messages = inputs.Select(input => new ClaudeRequestMessage
+            Messages = [.. inputs.Select(input =>
             {
-                Role = input.IsSelf ? ClaudeRole.Assistant : ClaudeRole.User,
-                Content = input.IsSelf ? input.Message : $"[[{input.ParticipantName}]] {input.Message}"
-            }).ToList()
+                var text = input.IsSelf ? input.Message : $"[[{input.ParticipantName}]] {input.Message}";
+                return new ClaudeRequestMessage
+                {
+                    Role = input.IsSelf ? ClaudeRole.Assistant : ClaudeRole.User,
+                    Content = [text]
+                };
+            })],
         };
 
-        const string url = "https://api.anthropic.com/v1/messages";
-        var serializedRequest = JsonSerializer.Serialize(request, new JsonSerializerOptions { WriteIndented = true });
-        Logger.LogWarning("Claude request: {Request}", serializedRequest);
-        var response = await client.PostAsJsonAsync(url, request).ConfigureAwait(false);
+        var response = await client.PostAsJsonAsync(ENDPOINT_URL, request).ConfigureAwait(false);
         ClaudeResponse? claudeResponse = null;
         if (response.Content != null)
         {
@@ -93,14 +110,71 @@ public class ClaudeAIService : BaseAIService
                 return null;
             }
 
+            if (kind == ResponseKind.StructuredJsonArray)
+                responseText = JSON_ARRAY_PREFILL + responseText;
+            
             return responseText;
         }
         return null;
     }
 
-    public override Task<string> DescribeImageAsync(string systemPrompt, byte[] imageBytes, string mimeType)
+    public override async Task<string> DescribeImageAsync(string systemPrompt, byte[] imageBytes, string mimeType)
     {
-        throw new NotImplementedException();
+        using var client = CreateClientWithApiKey();
+        var request = new ClaudeMessageRequest()
+        {
+            Model = Model,
+            MaxTokens = 1000,
+            Temperature = 0.6,
+            System = new List<ClaudeSystemContent>
+            {
+                new ClaudeSystemContent { Text = systemPrompt }
+            },
+            Messages = new List<ClaudeRequestMessage>
+            {
+                new()
+                {
+                    Role = ClaudeRole.User,
+                    Content = [
+                        "Please describe the following image.",
+                        new ClaudeRequestMessageContent
+                        {
+                            Type = "image",
+                            Source = new ClaudeImageSource
+                            {
+                                MediaType = mimeType,
+                                Data = Convert.ToBase64String(imageBytes)
+                            }
+                        }
+                    ],
+                }
+            }
+        };
+
+        var response = await client.PostAsJsonAsync(ENDPOINT_URL, request);
+        if (!response.IsSuccessStatusCode)
+        {
+            Logger.LogError("Failed to get response from Claude AI for image description. Status code: {StatusCode}", response.StatusCode);
+            return "Error: Unable to describe image.";
+        }
+
+        var responseStream = await response.Content.ReadAsStreamAsync();
+        var claudeResponse = await JsonSerializer.DeserializeAsync<ClaudeResponse>(responseStream);
+        if (claudeResponse is not ClaudeMessageResponse messageResponse || messageResponse.Content == null
+            || !messageResponse.Content.Any())
+        {
+            Logger.LogWarning("Claude response for image description was empty or not a message response.");
+            return "Error: No description available.";
+        }
+
+        var responseText = HandleClaudeResponse(messageResponse);
+        if (string.IsNullOrEmpty(responseText))
+        {
+            Logger.LogWarning("Claude response text for image description was empty after handling.");
+            return "Error: No description available.";
+        }
+
+        return responseText;
     }
 
     public string HandleClaudeResponse(ClaudeMessageResponse response)
