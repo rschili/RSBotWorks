@@ -54,7 +54,7 @@ var credentials = new AIServiceCredentials(
 );
 
 var openAIService = AIServiceFactory.CreateService(
-    AIModel.MoonshotAIKimiK2,
+    AIModel.ClaudeSonnet4,
     credentials,
     toolHub,
     httpClientFactory,

@@ -49,12 +49,12 @@ toolHub.EnableWebSearch = true; // Enable web search by default
 
 var credentials = new AIServiceCredentials(
     OpenAIKey: config.OpenAiApiKey,
-    ClaudeKey: null,
+    ClaudeKey: config.ClaudeApiKey,
     MoonshotKey: null // Moonshot AI key is optional
 );
 
 var openAIService = AIServiceFactory.CreateService(
-    AIModel.GPT41,
+    AIModel.ClaudeSonnet4,
     credentials,
     toolHub,
     httpClientFactory,

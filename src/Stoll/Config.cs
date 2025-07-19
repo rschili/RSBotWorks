@@ -3,6 +3,7 @@
 public enum EnvVar
 {
     OPENAI_API_KEY,
+    CLAUDE_API_KEY,
     MATRIX_USER_ID,
     MATRIX_PASSWORD,
     SEQ_API_KEY,
@@ -19,6 +20,7 @@ public class Config
     private readonly Dictionary<EnvVar, string> _variables;
 
     public string OpenAiApiKey => _variables[EnvVar.OPENAI_API_KEY];
+    public string ClaudeApiKey => _variables[EnvVar.CLAUDE_API_KEY];
     public string MatrixUserId => _variables[EnvVar.MATRIX_USER_ID];
     public string MatrixPassword => _variables[EnvVar.MATRIX_PASSWORD];
     public string SeqApiKey => _variables[EnvVar.SEQ_API_KEY];
