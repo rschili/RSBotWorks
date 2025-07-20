@@ -118,7 +118,7 @@ public class Runner : IDisposable
             if (desc == null)
                 continue;
 
-            emotesDict[desc] = new Emoji(value.ToString());
+            emotesDict[desc] = value;
         }
 
         emotesDict["coffee"] = new Emoji("☕");
@@ -671,9 +671,9 @@ public class Runner : IDisposable
 
             await arg.AddReactionAsync(emoji).ConfigureAwait(false);
         }
-        catch
+        catch(Exception ex)
         {
-            Logger.LogWarning("Could not add reaction: {Reaction}", reaction);
+            Logger.LogError(ex, "An error occurred while adding a reaction to the message: {Message}", arg.Content.Substring(0, Math.Min(arg.Content.Length, 100)));
         }
     }
 
