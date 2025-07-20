@@ -1,5 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging;
 using RSBotWorks;
@@ -186,35 +187,90 @@ public class ClaudeRequestMessage
 
     [JsonPropertyName("content")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public required List<ClaudeRequestMessageContent>? Content { get; set; } = default!;
+    public JsonNode? Content { get; set; }
+
+    [JsonIgnore]
+    public ClaudeMessageContentSetter ContentSetter => new ClaudeMessageContentSetter(this);
+
+    public static ClaudeRequestMessage Create(ClaudeRole role, string text)
+    {
+        var message = new ClaudeRequestMessage { Role = role };
+        message.ContentSetter.Set(text);
+        return message;
+    }
+
+    public static ClaudeRequestMessage Create(ClaudeRole role, Action<ClaudeMessageContentBuilder> contentBuilder)
+    {
+        var message = new ClaudeRequestMessage { Role = role };
+        var builder = message.ContentSetter.CreateBuilder();
+        contentBuilder(builder);
+        return message;
+    }
 }
 
-public class ClaudeRequestMessageContent
+public class ClaudeMessageContentSetter
 {
-    [JsonPropertyName("type")]
-    public required string Type { get; set; }
+    private readonly ClaudeRequestMessage _message;
 
-    [JsonPropertyName("text")]
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public string? Text { get; set; }
+    public ClaudeMessageContentSetter(ClaudeRequestMessage message)
+    {
+        _message = message;
+    }
 
-    [JsonPropertyName("source")]
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public ClaudeImageSource? Source { get; set; }
+    public void Set(string text)
+    {
+        _message.Content = JsonValue.Create(text);
+    }
 
-    public static implicit operator ClaudeRequestMessageContent(string text) => new() { Text = text, Type = "text" };
+    public ClaudeMessageContentBuilder CreateBuilder()
+    {
+        var array = new JsonArray();
+        _message.Content = array;
+        return new ClaudeMessageContentBuilder(array);
+    }
 }
 
-public class ClaudeImageSource
+public class ClaudeMessageContentBuilder
 {
-    [JsonPropertyName("type")]
-    public string Type { get; set; } = "base64";
+    private readonly JsonArray _array;
 
-    [JsonPropertyName("media_type")]
-    public required string MediaType { get; set; }
+    public ClaudeMessageContentBuilder(JsonArray array)
+    {
+        _array = array;
+    }
 
-    [JsonPropertyName("data")]
-    public required string Data { get; set; } = default!;
+    public ClaudeMessageContentBuilder AddText(string text)
+    {
+        var obj = new JsonObject
+        {
+            ["type"] = "text",
+            ["text"] = text
+        };
+        _array.Add(obj);
+        return this;
+    }
+
+    public ClaudeMessageContentBuilder AddBase64Image(string mimeType, byte[] imageBytes)
+    {
+        var base64Data = Convert.ToBase64String(imageBytes);
+        return AddBase64Image(mimeType, base64Data);
+    }
+
+    public ClaudeMessageContentBuilder AddBase64Image(string mimeType, string base64Data)
+    {
+        var obj = new JsonObject
+        {
+            ["type"] = "image",
+            ["source"] = new JsonObject
+            {
+                ["type"] = "base64",
+                ["media_type"] = mimeType,
+                ["data"] = base64Data
+            }
+        };
+        _array.Add(obj);
+        return this;
+    }
 }
 
 public class ClaudeTool

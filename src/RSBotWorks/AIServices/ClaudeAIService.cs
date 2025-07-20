@@ -38,19 +38,17 @@ public class ClaudeAIService : BaseAIService
 
     public override async Task<string?> DoGenerateResponseAsync(string systemPrompt, IEnumerable<AIMessage> inputs, ResponseKind kind = ResponseKind.Default)
     {
-        using var client = CreateClientWithApiKey();
+        var processedInputs = inputs;
+        var processedPrompt = systemPrompt;
+
         if (kind == ResponseKind.StructuredJsonArray)
         {
-            systemPrompt +=
-            """
-            
-            Please respond with a JSON object that contains a 'values' property that holds an array of strings.
-            For example: { "values": ["value1", "value2", "value3"] }
-            """;
-
-            inputs = [ ..inputs,
-                new AIMessage(true, JSON_ARRAY_PREFILL, "")
-            ];
+            processedPrompt += """
+                
+                Please respond with a JSON object that contains a 'values' property that holds an array of strings.
+                For example: { "values": ["value1", "value2", "value3"] }
+                """;
+            processedInputs = inputs.Append(new AIMessage(true, JSON_ARRAY_PREFILL, ""));
         }
         var request = new ClaudeMessageRequest
         {
@@ -64,63 +62,21 @@ public class ClaudeAIService : BaseAIService
             Messages = [.. inputs.Select(input =>
             {
                 var text = input.IsSelf ? input.Message : $"[[{input.ParticipantName}]] {input.Message}";
-                return new ClaudeRequestMessage
-                {
-                    Role = input.IsSelf ? ClaudeRole.Assistant : ClaudeRole.User,
-                    Content = [text]
-                };
+                return ClaudeRequestMessage.Create(input.IsSelf ? ClaudeRole.User : ClaudeRole.Assistant, text);
             })],
         };
 
-        var response = await client.PostAsJsonAsync(ENDPOINT_URL, request).ConfigureAwait(false);
-        ClaudeResponse? claudeResponse = null;
-        if (response.Content != null)
-        {
-            var responseStream = await response.Content.ReadAsStreamAsync().ConfigureAwait(false);
-            claudeResponse = await JsonSerializer.DeserializeAsync<ClaudeResponse>(responseStream);
-        }
-        if (claudeResponse == null)
-        {
-            Logger.LogWarning("Claude response was null. Status code: {StatusCode}", response.StatusCode);
-            return null;
-        }
-        if (!response.IsSuccessStatusCode)
-        {
-            if (claudeResponse is ClaudeErrorResponse claudeError)
-            {
-                Logger.LogError("Claude AI error: {ErrorMessage}", claudeError.Error?.Message);
-                return null;
-            }
+        var response = await SendRequestAsync(request);
+        var responseText = ExtractTextFromResponse(response);
 
-            Logger.LogError("Failed to get response from Claude AI. Status code: {StatusCode}, content was not a ClaudeErrorResponse", response.StatusCode);
-            return null;
-        }
-        if (claudeResponse is ClaudeMessageResponse messageResponse)
-        {
-            if (messageResponse.Content == null || !messageResponse.Content.Any())
-            {
-                Logger.LogWarning("Claude response content was empty.");
-                return null;
-            }
+        if (kind == ResponseKind.StructuredJsonArray)
+            responseText = JSON_ARRAY_PREFILL + responseText;
 
-            var responseText = HandleClaudeResponse(messageResponse);
-            if (string.IsNullOrEmpty(responseText))
-            {
-                Logger.LogWarning("Claude response text was empty after handling.");
-                return null;
-            }
-
-            if (kind == ResponseKind.StructuredJsonArray)
-                responseText = JSON_ARRAY_PREFILL + responseText;
-            
-            return responseText;
-        }
-        return null;
+        return responseText;
     }
 
     public override async Task<string> DescribeImageAsync(string systemPrompt, byte[] imageBytes, string mimeType)
     {
-        using var client = CreateClientWithApiKey();
         var request = new ClaudeMessageRequest()
         {
             Model = Model,
@@ -130,48 +86,71 @@ public class ClaudeAIService : BaseAIService
             {
                 new ClaudeSystemContent { Text = systemPrompt }
             },
-            Messages = new List<ClaudeRequestMessage>
-            {
-                new()
-                {
-                    Role = ClaudeRole.User,
-                    Content = [
-                        "Please describe the following image.",
-                        new ClaudeRequestMessageContent
-                        {
-                            Type = "image",
-                            Source = new ClaudeImageSource
-                            {
-                                MediaType = mimeType,
-                                Data = Convert.ToBase64String(imageBytes)
-                            }
-                        }
-                    ],
-                }
-            }
+            Messages = [
+                ClaudeRequestMessage.Create(ClaudeRole.User, b => b.AddBase64Image(mimeType, imageBytes))
+            ],
         };
 
-        var response = await client.PostAsJsonAsync(ENDPOINT_URL, request);
-        if (!response.IsSuccessStatusCode)
+        var response = await SendRequestAsync(request);
+        var responseText = ExtractTextFromResponse(response);
+        return responseText ?? "Error: Unable to describe image.";
+    }
+
+    private async Task<ClaudeResponse?> SendRequestAsync(ClaudeMessageRequest request)
+    {
+        using var client = CreateClientWithApiKey();
+        var response = await client.PostAsJsonAsync(ENDPOINT_URL, request).ConfigureAwait(false);
+        
+        if (response.Content == null)
         {
-            Logger.LogError("Failed to get response from Claude AI for image description. Status code: {StatusCode}", response.StatusCode);
-            return "Error: Unable to describe image.";
+            Logger.LogWarning("Claude response content was null. Status code: {StatusCode}", response.StatusCode);
+            return null;
         }
 
-        var responseStream = await response.Content.ReadAsStreamAsync();
+        var responseStream = await response.Content.ReadAsStreamAsync().ConfigureAwait(false);
         var claudeResponse = await JsonSerializer.DeserializeAsync<ClaudeResponse>(responseStream);
-        if (claudeResponse is not ClaudeMessageResponse messageResponse || messageResponse.Content == null
-            || !messageResponse.Content.Any())
+        
+        if (claudeResponse == null)
         {
-            Logger.LogWarning("Claude response for image description was empty or not a message response.");
-            return "Error: No description available.";
+            Logger.LogWarning("Claude response deserialization failed. Status code: {StatusCode}", response.StatusCode);
+            return null;
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            if (claudeResponse is ClaudeErrorResponse claudeError)
+            {
+                Logger.LogError("Claude AI error: {ErrorMessage}", claudeError.Error?.Message);
+            }
+            else
+            {
+                Logger.LogError("Failed to get response from Claude AI. Status code: {StatusCode}", response.StatusCode);
+            }
+            return null;
+        }
+
+        return claudeResponse;
+    }
+
+    private string? ExtractTextFromResponse(ClaudeResponse? response)
+    {
+        if (response is not ClaudeMessageResponse messageResponse)
+        {
+            Logger.LogWarning("Response was not a ClaudeMessageResponse");
+            return null;
+        }
+
+        if (messageResponse.Content == null || !messageResponse.Content.Any())
+        {
+            Logger.LogWarning("Claude response content was empty");
+            return null;
         }
 
         var responseText = HandleClaudeResponse(messageResponse);
         if (string.IsNullOrEmpty(responseText))
         {
-            Logger.LogWarning("Claude response text for image description was empty after handling.");
-            return "Error: No description available.";
+            Logger.LogWarning("Claude response text was empty after handling");
+            return null;
         }
 
         return responseText;
