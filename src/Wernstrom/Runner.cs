@@ -21,7 +21,7 @@ public class Runner : IDisposable
 
     private ProbabilityRamp EmojiProbabilityRamp { get; init; } = new(0, 0.4, TimeSpan.FromMinutes(40));
 
-    private Lazy<IDictionary<string, GuildEmote>> Emotes { get; init; }
+    private Lazy<IDictionary<string, IEmote>> Emotes { get; init; }
 
     private Lazy<string> EmojiJsonList { get; init; }
 
@@ -97,14 +97,7 @@ public class Runner : IDisposable
         MessageCache = messageCache ?? throw new ArgumentNullException(nameof(messageCache));
         AIService = aiService ?? throw new ArgumentNullException(nameof(aiService));
         ImageHandler = new DiscordImageHandler(httpClientFactory, this.DescribeImageAsync, logger);
-        Emotes = new(() =>
-        {
-            var emotes = Client.Guilds.SelectMany(g => g.Emotes)
-                .Where(e => e.IsAvailable == true)
-                .GroupBy(e => e.Name, StringComparer.OrdinalIgnoreCase)
-                .ToDictionary(v => v.Key, v => v.First(), StringComparer.OrdinalIgnoreCase);
-            return emotes;
-        }, LazyThreadSafetyMode.ExecutionAndPublication);
+        Emotes = new(() => BuildEmotesDictionary(), LazyThreadSafetyMode.ExecutionAndPublication);
 
         EmojiJsonList = new(() =>
         {
@@ -112,6 +105,70 @@ public class Runner : IDisposable
             return JsonSerializer.Serialize(emotes);
         }, LazyThreadSafetyMode.ExecutionAndPublication);
     }
+
+    private Dictionary<string, IEmote> BuildEmotesDictionary()
+    {
+        var emotes = Client.Guilds.SelectMany(g => g.Emotes)
+            .Where(e => e.IsAvailable == true)
+            .GroupBy(e => e.Name, StringComparer.OrdinalIgnoreCase);
+
+        var emotesDict = new Dictionary<string, IEmote>(StringComparer.OrdinalIgnoreCase);
+        foreach (var group in emotes)
+        {
+            var name = group.Key;
+            var value = group.First();
+            var desc = GetEmojiDescriptiveName(name);
+            if (desc == null)
+                continue;
+
+            emotesDict[desc] = new Emoji(value.ToString());
+        }
+
+        emotesDict["coffee"] = new Emoji("☕");
+        emotesDict["tea"] = new Emoji("🍵");
+        emotesDict["icecream"] = new Emoji("🍦");
+        emotesDict["croissant"] = new Emoji("🥐");
+        emotesDict["fried-egg"] = new Emoji("🍳");
+        emotesDict["whiskey"] = new Emoji("🥃");
+        emotesDict["baguette"] = new Emoji("🥖");
+        emotesDict["cheese"] = new Emoji("🧀");
+        emotesDict["honey"] = new Emoji("🍯");
+        emotesDict["milk"] = new Emoji("🥛");
+        emotesDict["alarm_clock"] = new Emoji("⏰");
+        emotesDict["pizza"] = new Emoji("🍕");
+        emotesDict["heart"] = new Emoji("❤️");
+        emotesDict["brain"] = new Emoji("🧠");
+        return emotesDict;
+    }
+
+    private string? GetEmojiDescriptiveName(string name) =>
+        name switch
+        {
+            "pepe_cry" => "pepe-cry",
+            "quinkerella" => "cat",
+            "avery" => "dog",
+            "sidus2" => "groundhog",
+            "coins" => "coins",
+            "banking" => "treasure",
+            "disgusted" => "disgusted",
+            "zonk" => "fail",
+            "gustaff" => "silly-face",
+            "evil" => "evil-grin",
+            "salt" => "salt",
+            "louisdefunes_lol" => "lol",
+            "louisdefunes_shocked" => "shocked",
+            "troll" => "troll",
+            "homerdrool" => "tasty",
+            "facepalmpicard" => "facepalm",
+            "homer" => "yay",
+            "nsfw" => "nsfw",
+            "wernstrom" => "wernstrom",
+            "hypnotoad" => "hypnotoad",
+            "zoidberg" => "zoidberg",
+            "farnsworth" => "farnsworth",
+            "angry_sun" => "angry-sun",
+            _ => null // no description available
+        };
 
     public async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -333,13 +390,13 @@ public class Runner : IDisposable
         if (!ShouldRespond(arg))
         {
             // If we do not respond, we may want to handle reactions like coffee or similar
-            /*_ = Task.Run(() => HandleReactionsAsync(arg)).ContinueWith(task =>
+            _ = Task.Run(() => HandleReactionsAsync(arg)).ContinueWith(task =>
             {
                 if (task.Exception != null)
                 {
                     Logger.LogError(task.Exception, "An error occurred while emoji for a message. Message: {Message}", arg.Content);
                 }
-            }, TaskContinuationOptions.OnlyOnFaulted);*/
+            }, TaskContinuationOptions.OnlyOnFaulted);
             return;
         }
 
@@ -568,7 +625,22 @@ public class Runner : IDisposable
     {
         if (CoffeeKeywords.Contains(arg.Content.Trim()))
         {
-            await arg.AddReactionAsync(new Emoji("\u2615")).ConfigureAwait(false); // Coffee emoji
+            var breakfasts = new string[]
+            {
+                "☕",
+                "🍵",
+                "🍦",
+                "🥐",
+                "🥯",
+                "🍳",
+                "🥃",
+                "🥖",
+                "🧀",
+                "🍯",
+                "🥛",
+            };
+            var emoji = breakfasts[Random.Shared.Next(breakfasts.Length)];
+            await arg.AddReactionAsync(new Emoji(emoji)).ConfigureAwait(false);
             return;
         }
 
