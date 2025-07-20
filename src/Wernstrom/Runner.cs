@@ -47,7 +47,6 @@ public class Runner : IDisposable
 
     private ConcurrentQueue<string> StatusMessages = new();
     private DateTimeOffset LastStatusUpdate = DateTimeOffset.MinValue;
-    private DateTimeOffset LastEmoji = DateTimeOffset.MinValue;
     private string? CurrentActivity = null;
 
     internal const string GENERIC_INSTRUCTION = $"""
@@ -78,11 +77,9 @@ public class Runner : IDisposable
 
     internal string REACTION_INSTRUCTION(string emojiList) => $"""
         {GENERIC_INSTRUCTION}
-        Generiere ein Reaction-Emoji für die letzte Nachricht, die du erhalten hast.
-        Liefere deine Reaktion direkt, ohne Formattierung, Anführungszeichen oder ähnliches.
-        Verwende entweder ein beliebiges Unicode-Emoji direkt, oder eines aus der folgenden Json-Liste:
-        {emojiList}
-        In diesem Chat bist du der Assistent. Die Nachrichten in der Chathistorie enthalten den Benutzernamen als Kontext im folgenden Format vorangestellt: `[[Name]]:`.
+        Wähle eine passende Reaktion für die letzte Nachricht, die du erhalten hast aus der folgenden Json-Liste: {emojiList}.
+        Liefere den Wert direkt, ohne Formattierung, Anführungszeichen oder ähnliches.
+        Nachrichten anderer Nutzer in der Chathistorie enthalten den Benutzernamen als Kontext im folgenden Format vorangestellt: `[[Name]]:`.
         """;
 
     internal const string IMAGE_INSTRUCTION = $"""
@@ -644,16 +641,10 @@ public class Runner : IDisposable
             return;
         }
 
-        DateTimeOffset now = DateTimeOffset.UtcNow;
-        var minutesSinceLast = (now - LastEmoji).TotalMinutes;
-        if (minutesSinceLast < 1)
-            return;
-
         var shouldReact = EmojiProbabilityRamp.Check();
         if (!shouldReact)
             return;
 
-        LastEmoji = now;
         var history = await MessageCache.GetLastDiscordMessagesForChannelAsync(arg.Channel.Id, 4).ConfigureAwait(false);
         var messages = history.Select(message => new AIMessage(message.IsFromSelf, message.Body, message.UserLabel)).ToList();
         var reaction = await AIService.GenerateResponseAsync(REACTION_INSTRUCTION(EmojiJsonList.Value), messages, ResponseKind.NoTools).ConfigureAwait(false);

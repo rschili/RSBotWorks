@@ -57,12 +57,12 @@ public class ClaudeAIService : BaseAIService
             Temperature = 0.6,
             System = new List<ClaudeSystemContent>
             {
-                new ClaudeSystemContent { Text = systemPrompt }
+                new ClaudeSystemContent { Text = processedPrompt }
             },
-            Messages = [.. inputs.Select(input =>
+            Messages = [.. processedInputs.Select(input =>
             {
                 var text = input.IsSelf ? input.Message : $"[[{input.ParticipantName}]] {input.Message}";
-                return ClaudeRequestMessage.Create(input.IsSelf ? ClaudeRole.User : ClaudeRole.Assistant, text);
+                return ClaudeRequestMessage.Create(input.IsSelf ? ClaudeRole.Assistant : ClaudeRole.User, text);
             })],
         };
 
