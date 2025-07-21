@@ -78,12 +78,13 @@ public class Runner : IDisposable
     internal string REACTION_INSTRUCTION(string emojiList) => $"""
         {GENERIC_INSTRUCTION}
         Wähle eine passende Reaktion für die letzte Nachricht, die du erhalten hast aus der folgenden Json-Liste: {emojiList}.
-        Liefere den Wert direkt, ohne Formattierung, Anführungszeichen oder ähnliches.
+        Liefere nur den Wert aus der Liste direkt, ohne Formattierung, Anführungszeichen oder zusätzlichen Text.
+        Bei der Auwahl der Reaktion, gib dem Inhalt der letzten Nachricht Priorität, deine Persönlichkeit soll nur eine untergeordnete Rolle spielen, da du sonst fast immer die selbe Wahl treffen würdest.
         Nachrichten anderer Nutzer in der Chathistorie enthalten den Benutzernamen als Kontext im folgenden Format vorangestellt: `[[Name]]:`.
         """;
 
     internal const string IMAGE_INSTRUCTION = $"""
-        Beschreibe das Bild, das du übergeben bekommst prägnant und präzise in 1-3 Sätzen (je nach Menge der Details im Bild).
+        Beschreibe das Bild, das du übergeben bekommst prägnant und kurz in 1-3 Sätzen (je nach Menge der Details im Bild).
         Ich werde den generierten Text anstelle des Originalbildes als Kontext für weitere Aufrufe übergeben.
         """;
 
@@ -156,7 +157,7 @@ public class Runner : IDisposable
             "louisdefunes_shocked" => "shocked",
             "troll" => "troll",
             "homerdrool" => "tasty",
-            "facepalmpicard" => "facepalm",
+            "facepalmpicard" => "disappointed",
             "homer" => "yay",
             "nsfw" => "nsfw",
             "wernstrom" => "wernstrom",
@@ -398,7 +399,7 @@ public class Runner : IDisposable
         }
 
         await arg.Channel.TriggerTypingAsync().ConfigureAwait(false);
-        var history = await MessageCache.GetLastDiscordMessagesForChannelAsync(arg.Channel.Id, 12).ConfigureAwait(false);
+        var history = await MessageCache.GetLastDiscordMessagesForChannelAsync(arg.Channel.Id, 8).ConfigureAwait(false);
         var messages = history.Select(message => new AIMessage(message.IsFromSelf, message.Body, message.UserLabel)).ToList();
 
         try

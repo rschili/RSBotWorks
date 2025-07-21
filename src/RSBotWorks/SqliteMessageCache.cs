@@ -39,6 +39,17 @@ public class SqliteMessageCache : IDisposable
             command.CommandText = "CREATE TABLE IF NOT EXISTS Settings (Key TEXT PRIMARY KEY, Value TEXT)";
             await command.ExecuteNonQueryAsync().ConfigureAwait(false);
         }
+        using (var command = connection.CreateCommand())
+        {
+            command.CommandText = "CREATE TABLE IF NOT EXISTS UnprocessedPictures (Id INTEGER PRIMARY KEY AUTOINCREMENT, Timestamp DATETIME NOT NULL, MimeType TEXT NOT NULL, DataBase64 TEXT NOT NULL)";
+            await command.ExecuteNonQueryAsync().ConfigureAwait(false);
+        }
+        using (var command = connection.CreateCommand())
+        {
+            command.CommandText = "CREATE TABLE IF NOT EXISTS DiscordMessagePictures (DiscordMessageId INTEGER NOT NULL, UnprocessedPictureId INTEGER NOT NULL, PRIMARY KEY (DiscordMessageId, UnprocessedPictureId), FOREIGN KEY (DiscordMessageId) REFERENCES DiscordMessages(Id), FOREIGN KEY (UnprocessedPictureId) REFERENCES UnprocessedPictures(Id))";
+            await command.ExecuteNonQueryAsync().ConfigureAwait(false);
+        }
+
 
         // Dapper does not correctly handle DateTimeOffset, so we need to add a custom type handler
         SqlMapper.RemoveTypeMap(typeof(DateTimeOffset));
@@ -67,6 +78,20 @@ public class SqliteMessageCache : IDisposable
         command.Parameters.AddWithValue("@IsFromSelf", isFromSelf);
         command.Parameters.AddWithValue("@ChannelId", channelId);
         return command.ExecuteNonQueryAsync();
+    }
+
+    public async Task<int> AddUnprocessedPictureAsync(DateTimeOffset timestamp, string mimeType, string dataBase64)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(mimeType, nameof(mimeType));
+        ArgumentException.ThrowIfNullOrWhiteSpace(dataBase64, nameof(dataBase64));
+
+        using var command = Connection.CreateCommand();
+        command.CommandText = "INSERT INTO UnprocessedPictures(Timestamp, MimeType, DataBase64) VALUES(@Timestamp, @MimeType, @DataBase64); SELECT last_insert_rowid();";
+        command.Parameters.AddWithValue("@Timestamp", timestamp.UtcTicks);
+        command.Parameters.AddWithValue("@MimeType", mimeType);
+        command.Parameters.AddWithValue("@DataBase64", dataBase64);
+        var result = await command.ExecuteScalarAsync();
+        return Convert.ToInt32(result);
     }
 
     public Task AddMatrixMessageAsync(string id, DateTimeOffset timestamp, string userId, string userLabel, string body, bool isFromSelf, string room)
