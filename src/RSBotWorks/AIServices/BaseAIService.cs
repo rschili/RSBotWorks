@@ -13,7 +13,7 @@ public enum ResponseKind
     NoTools
 }
 
-public interface IAIService
+public interface IAIService : IDisposable
 {
     Task<string?> GenerateResponseAsync(string systemPrompt, IEnumerable<AIMessage> inputs, ResponseKind kind = ResponseKind.Default);
     Task<string> DescribeImageAsync(string systemPrompt, byte[] imageBytes, string mimeType);
@@ -24,6 +24,8 @@ public record AIMessage(bool IsSelf, string Message, string ParticipantName);
 
 public abstract class BaseAIService : IAIService
 {
+    private bool disposedValue;
+
     [SetsRequiredMembers]
     protected BaseAIService(ToolHub toolhub, ILogger? logger)
     {
@@ -53,4 +55,7 @@ public abstract class BaseAIService : IAIService
     public abstract Task<string?> DoGenerateResponseAsync(string systemPrompt, IEnumerable<AIMessage> inputs, ResponseKind kind = ResponseKind.Default);
 
     public abstract Task<string> DescribeImageAsync(string systemPrompt, byte[] imageBytes, string mimeType);
+
+    public virtual void Dispose()
+    {}
 }

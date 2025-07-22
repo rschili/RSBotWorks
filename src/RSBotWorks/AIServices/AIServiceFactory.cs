@@ -1,5 +1,11 @@
+using Anthropic.SDK;
+using Anthropic.SDK.Constants;
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using RSBotWorks.Tools;
+using Microsoft.SemanticKernel;
+using Microsoft.SemanticKernel.ChatCompletion;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace RSBotWorks;
 
@@ -33,6 +39,30 @@ public static class AIServiceFactory
             _ => throw new NotImplementedException($"AI provider {model.Provider} is not implemented.")
         };
     }
+
+    public static IAIService CreateIChatClientService(AIServiceCredentials credentials, ToolHub toolHub, ILogger? logger = null)
+    {
+        // See https://github.com/tghamm/Anthropic.SDK/blob/2cc55587f233958a1171c7e9e5e6c0a0af811125/Anthropic.SDK.Tests/SemanticKernelInitializationTests.cs#L19
+        IChatClient client = new AnthropicClient(new APIAuthentication(credentials.ClaudeKey)).Messages.AsBuilder().UseFunctionInvocation().Build();
+#pragma warning disable SKEXP0001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
+        var service = client.AsChatCompletionService();
+#pragma warning restore SKEXP0001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
+        var sk = Kernel.CreateBuilder();
+        var plugins = sk.Plugins;
+        foreach (var tool in toolHub.Tools)
+        {
+            plugins.AddFromObject(tool);
+        }
+        sk.Services.AddSingleton(service);
+        ChatOptions options = new()
+        {
+            ModelId = AnthropicModels.Claude4Sonnet,
+            MaxOutputTokens = 1000,
+            Temperature = 0.6f,
+        };
+        return new ChatClientAIService(client, toolHub, logger);
+    }
+
 }
 
 public record AIServiceCredentials(
