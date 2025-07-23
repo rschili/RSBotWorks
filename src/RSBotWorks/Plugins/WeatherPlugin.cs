@@ -1,9 +1,11 @@
+using System.ComponentModel;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.SemanticKernel;
 
-namespace RSBotWorks.Tools;
+namespace RSBotWorks.Plugins;
 
 public class ForecastResponse
 {
@@ -104,7 +106,7 @@ public class Sys
     public required long Sunset { get; set; }
 }
 
-public class WeatherToolProvider: ToolProvider
+public class WeatherPlugin
 {
     public ILogger Logger { get; private init; }
     public IHttpClientFactory HttpClientFactory { get; private init; }
@@ -113,21 +115,19 @@ public class WeatherToolProvider: ToolProvider
 
     public string ApiKey { get; private init; }
 
-    public WeatherToolProvider(IHttpClientFactory httpClientFactory, ILogger<WeatherToolProvider>? logger, string apiKey)
+    public WeatherPlugin(IHttpClientFactory httpClientFactory, ILogger<WeatherPlugin>? logger, string apiKey)
     {
         ApiKey = apiKey ?? throw new ArgumentNullException(nameof(apiKey));
         HttpClientFactory = httpClientFactory ?? throw new ArgumentNullException(nameof(httpClientFactory));
-        Logger = logger ?? NullLogger<WeatherToolProvider>.Instance;
+        Logger = logger ?? NullLogger<WeatherPlugin>.Instance;
         _placeUtility = new PlaceUtility(httpClientFactory);
-        ExposeTool(new Tool("weather_current", "Get the current weather and sunrise/sunset for a given location",
-            new List<ToolParameter> { new ToolParameter("location", "City name or ZIP code to get the current weather for. When providing a City name, an ISO 3166 country code can be appended with a comma e.g. 'Heidelberg,DE' to avoid ambiguity.") },
-            async parameters => await GetCurrentWeatherAsync(parameters["location"])));
-        ExposeTool(new Tool("weather_forecast", "Get a 5 day weather forecast for a given location",
-            new List<ToolParameter> { new ToolParameter("location", "City name or ZIP code to get the weather forecast for. When providing a City name, an ISO 3166 country code can be appended with a comma e.g. 'Heidelberg,DE' to avoid ambiguity.") },
-            async parameters => await GetWeatherForecastAsync(parameters["location"])));
     }
 
-    public async Task<string> GetCurrentWeatherAsync(string location)
+    [KernelFunction("get_current_weather")]
+    [Description("Gets the current weather and sunrise/sunset for a given location")]
+    public async Task<string> GetCurrentWeatherAsync(
+        [Description("City name or ZIP code. When providing a City name, ISO 3166 country code can be appended e.g. 'Heidelberg,DE' to avoid ambiguity.")]
+        string location)
     {
         if (string.IsNullOrWhiteSpace(location) || location.Length > 100)
             throw new ArgumentException("Location cannot be null or empty and must not exceed 100 characters.", nameof(location));
@@ -193,7 +193,11 @@ public class WeatherToolProvider: ToolProvider
         }
     }
 
-    public async Task<string> GetWeatherForecastAsync(string location)
+    [KernelFunction("weather_forecast")]
+    [Description("Get a 5 day weather forecast for a given location.")]
+    public async Task<string> GetWeatherForecastAsync(
+        [Description("City name or ZIP code. When providing a City name, ISO 3166 country code can be appended e.g. 'Heidelberg,DE' to avoid ambiguity.")]
+        string location)
     {
         if (string.IsNullOrWhiteSpace(location) || location.Length > 100)
             throw new ArgumentException("Location cannot be null or empty and must not exceed 100 characters.", nameof(location));

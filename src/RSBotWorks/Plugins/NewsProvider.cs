@@ -1,11 +1,13 @@
+using System.ComponentModel;
 using System.ServiceModel.Syndication;
 using System.Xml;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.SemanticKernel;
 
-namespace RSBotWorks.Tools;
+namespace RSBotWorks.Plugins;
 
-public class NewsToolProvider : ToolProvider
+public class NewsProvider
 {
     public ILogger Logger { get; private init; }
     public IHttpClientFactory HttpClientFactory { get; private init; }
@@ -14,19 +16,14 @@ public class NewsToolProvider : ToolProvider
 
     private TimedCache<string> _postillonCache = new(TimeSpan.FromHours(3));
 
-    public NewsToolProvider(IHttpClientFactory httpClientFactory, ILogger<NewsToolProvider>? logger)
+    public NewsProvider(IHttpClientFactory httpClientFactory, ILogger<NewsProvider>? logger)
     {
         HttpClientFactory = httpClientFactory ?? throw new ArgumentNullException(nameof(httpClientFactory));
-        Logger = logger ?? NullLogger<NewsToolProvider>.Instance;
-        ExposeTool(new Tool("heise_headlines", "Get the latest headlines from Heise Online (Technology related news)",
-            null,
-            async parameters => await GetHeiseHeadlinesAsync()));
-
-        ExposeTool(new Tool("postillon_headlines", "Get the latest headlines from Der Postillon (german satire magazine)",
-            null,
-            async parameters => await GetPostillonHeadlinesAsync()));
+        Logger = logger ?? NullLogger<NewsProvider>.Instance;
     }
 
+    [KernelFunction("heise_headlines")]
+    [Description("Get the latest headlines from Heise Online (Technology related news)")]
     public async Task<string> GetHeiseHeadlinesAsync(int count = 5)
     {
         if (_heiseCache.TryGet(out var cachedValue) && !string.IsNullOrEmpty(cachedValue))
@@ -49,6 +46,8 @@ public class NewsToolProvider : ToolProvider
         return result;
     }
 
+    [KernelFunction("postillon_headlines")]
+    [Description("Get the latest headlines from Der Postillon (german satire magazine)")]
     public async Task<string> GetPostillonHeadlinesAsync(int count = 5)
     {
         if (_postillonCache.TryGet(out var cachedValue) && !string.IsNullOrEmpty(cachedValue))

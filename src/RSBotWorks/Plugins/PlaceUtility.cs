@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging.Abstractions;
 
+namespace RSBotWorks.Plugins;
 public class PlaceUtility
 {
     public IHttpClientFactory HttpClientFactory { get; private init; }

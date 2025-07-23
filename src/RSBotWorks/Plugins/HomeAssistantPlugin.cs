@@ -1,46 +1,56 @@
+using System.ComponentModel;
 using HADotNet.Core;
 using HADotNet.Core.Clients;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.SemanticKernel;
 
-namespace RSBotWorks.Tools;
+namespace RSBotWorks.Plugins;
 
-public class HomeAssistantToolProvider : ToolProvider
+public interface IHomeAssistantToolConfig
+{
+    string HomeAssistantUrl { get; }
+    string HomeAssistantToken { get; }
+}
+
+public class HomeAssistantToolConfig : IHomeAssistantToolConfig
+{
+    public required string HomeAssistantUrl { get; set; }
+    public required string HomeAssistantToken { get; set; }
+}
+
+public class HomeAssistantPlugin
 {
     public ILogger Logger { get; private init; }
     public IHttpClientFactory HttpClientFactory { get; private init; }
-    public string HomeAssistantUrl { get; private init; }
-    public string HomeAssistantToken { get; private init; }
+    public IHomeAssistantToolConfig Config { get; private init; }
 
     private TimedCache<string> _cupraCache = new(TimeSpan.FromMinutes(10));
 
-    public HomeAssistantToolProvider(
+    public HomeAssistantPlugin(
         IHttpClientFactory httpClientFactory,
-        string homeAssistantUrl,
-        string homeAssistantToken,
-        ILogger<HomeAssistantToolProvider>? logger = null)
+        HomeAssistantToolConfig config,
+        ILogger<HomeAssistantPlugin>? logger = null)
     {
         HttpClientFactory = httpClientFactory ?? throw new ArgumentNullException(nameof(httpClientFactory));
-        HomeAssistantUrl = homeAssistantUrl ?? throw new ArgumentNullException(nameof(homeAssistantUrl));
-        HomeAssistantToken = homeAssistantToken ?? throw new ArgumentNullException(nameof(homeAssistantToken));
-        Logger = logger ?? NullLogger<HomeAssistantToolProvider>.Instance;
-        ExposeTool(new Tool("car_status", "Get current status of the EV car of the user krael aka noppel (charge, range, doors, etc.)",
-            null,
-            async parameters => await GetCupraInfoAsync()));
+        Config = config ?? throw new ArgumentNullException(nameof(config));
+        Logger = logger ?? NullLogger<HomeAssistantPlugin>.Instance;
     }
 
-    public async Task<string> GetCupraInfoAsync()
+    [KernelFunction("car_status")]
+    [Description("Get current status of the EV car of the user krael aka noppel (charge, range, doors, etc.)")]
+    public async Task<string> GetCarStatusAsync()
     {
         if (_cupraCache.TryGet(out var cachedValue) && !string.IsNullOrEmpty(cachedValue))
         {
-            Logger.LogInformation("Returning cached Cupra info.");
+            Logger.LogInformation("Returning cached Cupra status.");
             return cachedValue;
         }
 
         if (!ClientFactory.IsInitialized)
         {
             Logger.LogInformation("Initializing Home Assistant client.");
-            ClientFactory.Initialize(HomeAssistantUrl, HomeAssistantToken);
+            ClientFactory.Initialize(Config.HomeAssistantUrl, Config.HomeAssistantToken);
         }
 
         var statesClient = ClientFactory.GetClient<StatesClient>();
