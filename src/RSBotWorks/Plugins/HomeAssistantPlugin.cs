@@ -7,13 +7,13 @@ using Microsoft.SemanticKernel;
 
 namespace RSBotWorks.Plugins;
 
-public interface IHomeAssistantToolConfig
+public interface IHomeAssistantPluginConfig
 {
     string HomeAssistantUrl { get; }
     string HomeAssistantToken { get; }
 }
 
-public class HomeAssistantToolConfig : IHomeAssistantToolConfig
+public class HomeAssistantPluginConfig : IHomeAssistantPluginConfig
 {
     public required string HomeAssistantUrl { get; set; }
     public required string HomeAssistantToken { get; set; }
@@ -23,13 +23,13 @@ public class HomeAssistantPlugin
 {
     public ILogger Logger { get; private init; }
     public IHttpClientFactory HttpClientFactory { get; private init; }
-    public IHomeAssistantToolConfig Config { get; private init; }
+    public IHomeAssistantPluginConfig Config { get; private init; }
 
     private TimedCache<string> _cupraCache = new(TimeSpan.FromMinutes(10));
 
     public HomeAssistantPlugin(
         IHttpClientFactory httpClientFactory,
-        HomeAssistantToolConfig config,
+        HomeAssistantPluginConfig config,
         ILogger<HomeAssistantPlugin>? logger = null)
     {
         HttpClientFactory = httpClientFactory ?? throw new ArgumentNullException(nameof(httpClientFactory));

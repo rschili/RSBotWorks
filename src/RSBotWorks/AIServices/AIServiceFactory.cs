@@ -40,7 +40,7 @@ public static class AIServiceFactory
         };
     }
 
-    public static IAIService CreateIChatClientService(AIServiceCredentials credentials, ToolHub toolHub, ILogger? logger = null)
+    public static IAIService CreateIChatClientService(AIServiceCredentials credentials, ILogger? logger = null)
     {
         // See https://github.com/tghamm/Anthropic.SDK/blob/2cc55587f233958a1171c7e9e5e6c0a0af811125/Anthropic.SDK.Tests/SemanticKernelInitializationTests.cs#L19
         IChatClient client = new AnthropicClient(new APIAuthentication(credentials.ClaudeKey)).Messages.AsBuilder().UseKernelFunctionInvocation().Build();

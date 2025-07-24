@@ -2,8 +2,12 @@ using System.Globalization;
 using Wernstrom;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using RSBotWorks.Tools;
 using RSBotWorks;
+using Microsoft.Extensions.AI;
+using Anthropic.SDK;
+using Microsoft.SemanticKernel;
+using Microsoft.SemanticKernel.ChatCompletion;
+using RSBotWorks.Plugins;
 
 Console.WriteLine($"Current user: {Environment.UserName}");
 Console.WriteLine("Loading config...");
@@ -26,39 +30,37 @@ using var serviceProvider = services.BuildServiceProvider();
 var httpClientFactory = serviceProvider.GetRequiredService<IHttpClientFactory>();
 var loggerFactory = serviceProvider.GetRequiredService<ILoggerFactory>();
 
-var weatherProvider = new WeatherToolProvider(
-    httpClientFactory,
-    loggerFactory.CreateLogger<WeatherToolProvider>(),
-    config.OpenWeatherMapApiKey);
 
-var newsProvider = new NewsToolProvider(
-    httpClientFactory,
-    loggerFactory.CreateLogger<NewsToolProvider>());
+IChatClient client = new AnthropicClient(new APIAuthentication(config.ClaudeApiKey)).Messages.AsBuilder().UseKernelFunctionInvocation().Build();
+#pragma warning disable SKEXP0001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
+var chatService = client.AsChatCompletionService();
+#pragma warning restore SKEXP0001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
+var builder = Kernel.CreateBuilder();
+builder.Services.AddSingleton(chatService);
+var plugins = builder.Plugins;
 
-var homeAssistantProvider = new HomeAssistantToolProvider(
-    httpClientFactory,
-    config.HomeAssistantUrl,
-    config.HomeAssistantToken,
-    loggerFactory.CreateLogger<HomeAssistantToolProvider>());
+var lightsPlugin = new LightsPlugin();
+plugins.AddFromObject(lightsPlugin);
 
-var toolHub = new ToolHub(loggerFactory.CreateLogger<ToolHub>());
-toolHub.RegisterToolProvider(weatherProvider);
-toolHub.RegisterToolProvider(newsProvider);
-toolHub.RegisterToolProvider(homeAssistantProvider);
-toolHub.EnableWebSearch = true; // Enable web search by default
+var homeAssistantPlugin = new HomeAssistantPlugin(httpClientFactory,
+    new HomeAssistantPluginConfig() { HomeAssistantUrl = config.HomeAssistantUrl, HomeAssistantToken = config.HomeAssistantToken });
+plugins.AddFromObject(homeAssistantPlugin);
 
-var credentials = new AIServiceCredentials(
-    OpenAIKey: config.OpenAiApiKey,
-    ClaudeKey: config.ClaudeApiKey,
-    MoonshotKey: config.MoonshotApiKey
-);
+plugins.AddFromType<ListPluginsPlugin>();
+plugins.AddFromType<NewsPlugin>();
+var weatherPlugin = new WeatherPlugin(httpClientFactory, loggerFactory.CreateLogger<WeatherPlugin>(), config.OpenWeatherMapApiKey);
+plugins.AddFromObject(weatherPlugin);
+Kernel kernel = builder.Build();
 
-var openAIService = AIServiceFactory.CreateService(
-    AIModel.ClaudeSonnet4,
-    credentials,
-    toolHub,
-    httpClientFactory,
-    loggerFactory.CreateLogger<Runner>());
+// TODO: Enable WebSearch
+ChatOptions options = new()
+{
+    ModelId = AnthropicModels.Claude4Sonnet,
+    MaxOutputTokens = 1000,
+    Temperature = 0.6f,
+};
+
+chatService = kernel.GetRequiredService<IChatCompletionService>(); // re-get service because it may be wrapped in a proxy
 
 try
 {

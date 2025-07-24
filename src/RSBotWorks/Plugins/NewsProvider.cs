@@ -7,7 +7,7 @@ using Microsoft.SemanticKernel;
 
 namespace RSBotWorks.Plugins;
 
-public class NewsProvider
+public class NewsPlugin
 {
     public ILogger Logger { get; private init; }
     public IHttpClientFactory HttpClientFactory { get; private init; }
@@ -16,10 +16,10 @@ public class NewsProvider
 
     private TimedCache<string> _postillonCache = new(TimeSpan.FromHours(3));
 
-    public NewsProvider(IHttpClientFactory httpClientFactory, ILogger<NewsProvider>? logger)
+    public NewsPlugin(IHttpClientFactory httpClientFactory, ILogger<NewsPlugin>? logger)
     {
         HttpClientFactory = httpClientFactory ?? throw new ArgumentNullException(nameof(httpClientFactory));
-        Logger = logger ?? NullLogger<NewsProvider>.Instance;
+        Logger = logger ?? NullLogger<NewsPlugin>.Instance;
     }
 
     [KernelFunction("heise_headlines")]
