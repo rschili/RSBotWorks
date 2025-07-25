@@ -12,10 +12,23 @@ public enum EnvVar
     OPENWEATHERMAP_API_KEY,
     HA_API_URL,
     HA_TOKEN
-
 }
 
-public class Config
+public interface IConfig
+{
+    string OpenAiApiKey { get; }
+    string ClaudeApiKey { get; }
+    string MoonshotApiKey { get; }
+    string DiscordToken { get; }
+    string SeqApiKey { get; }
+    string SeqUrl { get; }
+    string SqliteDbPath { get; }
+    string OpenWeatherMapApiKey { get; }
+    string HomeAssistantUrl { get; }
+    string HomeAssistantToken { get; }
+}
+
+public class Config : IConfig
 {
     private readonly Dictionary<EnvVar, string> _variables;
 

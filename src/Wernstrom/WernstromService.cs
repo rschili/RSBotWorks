@@ -6,18 +6,25 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using Discord;
 using Discord.WebSocket;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.SemanticKernel.ChatCompletion;
 using RSBotWorks;
 using RSFlowControl;
 
 namespace Wernstrom;
 
-public class Runner : IDisposable
+public class WernstromServiceConfig
+{
+    public required string DiscordToken { get; set; }
+}
+
+public class WernstromService : BackgroundService
 {
     public ILogger Logger { get; init; }
-    private Config Config { get; init; }
-    private SqliteMessageCache MessageCache { get; init; }
-    private IAIService AIService { get; init; }
+    private WernstromServiceConfig Config { get; init; }
+
+    private IChatCompletionService ChatService { get; init; }
 
     private ProbabilityRamp EmojiProbabilityRamp { get; init; } = new(0, 0.4, TimeSpan.FromMinutes(40));
 
@@ -88,12 +95,11 @@ public class Runner : IDisposable
         Ich werde den generierten Text anstelle des Originalbildes als Kontext für weitere Aufrufe übergeben.
         """;
 
-    public Runner(ILogger<Runner> logger, IHttpClientFactory httpClientFactory, Config config, SqliteMessageCache messageCache, IAIService aiService)
+    public WernstromService(ILogger<WernstromService> logger, IHttpClientFactory httpClientFactory, WernstromServiceConfig config, IChatCompletionService chatService)
     {
         Logger = logger ?? throw new ArgumentNullException(nameof(logger));
         Config = config ?? throw new ArgumentNullException(nameof(config));
-        MessageCache = messageCache ?? throw new ArgumentNullException(nameof(messageCache));
-        AIService = aiService ?? throw new ArgumentNullException(nameof(aiService));
+        ChatService = chatService ?? throw new ArgumentNullException(nameof(chatService));
         ImageHandler = new DiscordImageHandler(httpClientFactory, this.DescribeImageAsync, logger);
         Emotes = new(() => BuildEmotesDictionary(), LazyThreadSafetyMode.ExecutionAndPublication);
 
@@ -168,7 +174,7 @@ public class Runner : IDisposable
             _ => null // no description available
         };
 
-    public async Task ExecuteAsync(CancellationToken stoppingToken)
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         var intents = GatewayIntents.AllUnprivileged | GatewayIntents.MessageContent | GatewayIntents.GuildMembers;
         intents &= ~GatewayIntents.GuildInvites;
@@ -402,6 +408,9 @@ public class Runner : IDisposable
         var history = await MessageCache.GetLastDiscordMessagesForChannelAsync(arg.Channel.Id, 8).ConfigureAwait(false);
         var messages = history.Select(message => new AIMessage(message.IsFromSelf, message.Body, message.UserLabel)).ToList();
 
+        var liveHistory = await arg.Channel.GetMessagesAsync(arg, Direction.Before, 10, CacheMode.AllowDownload).FlattenAsync().ConfigureAwait(false);
+        // TODO: Use liveHistory instead of MessageCache for more up-to-date history
+
         try
         {
             var prompt = DEFAULT_INSTRUCTION;
@@ -409,7 +418,7 @@ public class Runner : IDisposable
             {
                 prompt += $"\nDeine aktuelle Aktivität: {CurrentActivity}";
             }
-            var response = await AIService.GenerateResponseAsync(prompt, messages).ConfigureAwait(false);
+            var response = await ChatService.GenerateResponseAsync(prompt, messages).ConfigureAwait(false);
             if (string.IsNullOrEmpty(response))
             {
                 Logger.LogWarning($"OpenAI did not return a response to: {arg.Content.Substring(0, Math.Min(arg.Content.Length, 100))}");
@@ -450,7 +459,7 @@ public class Runner : IDisposable
     internal async Task<List<string>> CreateNewStatusMessages()
     {
         List<string> statusMessages = [];
-        var response = await AIService.GenerateResponseAsync(STATUS_INSTRUCTION, new List<AIMessage>(), ResponseKind.StructuredJsonArray).ConfigureAwait(false);
+        var response = await ChatService.GenerateResponseAsync(STATUS_INSTRUCTION, new List<AIMessage>(), ResponseKind.StructuredJsonArray).ConfigureAwait(false);
         // response should be a json array
         if (string.IsNullOrEmpty(response))
         {
@@ -670,7 +679,7 @@ public class Runner : IDisposable
 
         var history = await MessageCache.GetLastDiscordMessagesForChannelAsync(arg.Channel.Id, 4).ConfigureAwait(false);
         var messages = history.Select(message => new AIMessage(message.IsFromSelf, message.Body, message.UserLabel)).ToList();
-        var reaction = await AIService.GenerateResponseAsync(REACTION_INSTRUCTION(EmojiJsonList.Value), messages, ResponseKind.NoTools).ConfigureAwait(false);
+        var reaction = await ChatService.GenerateResponseAsync(REACTION_INSTRUCTION(EmojiJsonList.Value), messages, ResponseKind.NoTools).ConfigureAwait(false);
         if (string.IsNullOrEmpty(reaction))
         {
             Logger.LogWarning("OpenAI did not return a reaction for the message: {Message}", arg.Content.Substring(0, Math.Min(arg.Content.Length, 100)));
@@ -694,7 +703,7 @@ public class Runner : IDisposable
 
             await arg.AddReactionAsync(emoji).ConfigureAwait(false);
         }
-        catch(Exception ex)
+        catch (Exception ex)
         {
             Logger.LogError(ex, "An error occurred while adding a reaction to the message: {Message}", arg.Content.Substring(0, Math.Min(arg.Content.Length, 100)));
         }
@@ -704,7 +713,7 @@ public class Runner : IDisposable
     {
         try
         {
-            var response = await AIService.DescribeImageAsync(IMAGE_INSTRUCTION, imageBytes, mimeType).ConfigureAwait(false);
+            var response = await ChatService.DescribeImageAsync(IMAGE_INSTRUCTION, imageBytes, mimeType).ConfigureAwait(false);
             if (string.IsNullOrEmpty(response))
             {
                 Logger.LogWarning("OpenAI did not return a description for the image.");

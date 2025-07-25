@@ -5,6 +5,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <InvariantGlobalization>false</InvariantGlobalization>
+    <NoWarn>SKEXP0001</NoWarn> <!-- Experimental SemanticKernel features -->
   </PropertyGroup>
 
   <ItemGroup>
