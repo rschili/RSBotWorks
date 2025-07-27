@@ -7,7 +7,18 @@ using System.Text;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
-public class DiscordImageHandler
+public record ImageAttachment
+{
+    public required string Filename { get; set; }
+    public long Size { get; set; }
+    public int Width { get; set; }
+    public int Height { get; set; }
+    public bool IsResized { get; set; }
+    public required string MimeType { get; set; }
+    public required byte[] Data { get; set; }
+}
+
+public class DiscordImageProcessor
 {
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger _logger;
@@ -15,41 +26,38 @@ public class DiscordImageHandler
     private const int MaxImageHeight = MaxImageWidth;
     private const int MaxFileSizeBytes = 2 * 1024 * 1024; // 2MB limit
 
-    public delegate Task<string> BinaryImageToDescriptionHandler(byte[] ImageData, string mimeType);
-
-    private readonly BinaryImageToDescriptionHandler _binaryImageToDescriptionHandler;
-
-    public DiscordImageHandler(IHttpClientFactory httpClientFactory, BinaryImageToDescriptionHandler binaryImageToDescriptionHandler, ILogger? logger = null)
+    public DiscordImageProcessor(IHttpClientFactory httpClientFactory, ILogger? logger = null)
     {
         _httpClientFactory = httpClientFactory ?? throw new ArgumentNullException(nameof(httpClientFactory), "HttpClientFactory cannot be null.");
-        _binaryImageToDescriptionHandler = binaryImageToDescriptionHandler ?? throw new ArgumentNullException(nameof(binaryImageToDescriptionHandler), "BinaryImageToDescriptionHandler cannot be null.");
-        _logger = logger ?? NullLogger<DiscordImageHandler>.Instance;
+        _logger = logger ?? NullLogger<DiscordImageProcessor>.Instance;
     }
 
-    public async Task<string?> DescribeMessageAttachments(SocketMessage message)
+    public async Task<IList<ImageAttachment>?> ExtractImageAttachments(SocketMessage message)
     {
         if (message.Attachments.Count == 0)
             return null; // No Attachments to process
 
-        StringBuilder descriptionBuilder = new StringBuilder();
+        var imageAttachments = new List<ImageAttachment>();
 
         foreach (var attachment in message.Attachments)
         {
             if (attachment == null)
                 continue;
 
-            if(!IsImageFile(attachment.Filename, attachment.ContentType, out var mimeType))
+            if (!IsImageFile(attachment.Filename, attachment.ContentType, out var mimeType))
             {
                 continue;
             }
 
             using var httpClient = _httpClientFactory.CreateClient();
             var imageData = await httpClient.GetByteArrayAsync(attachment.Url);
+            bool isResized = false;
             if (attachment.Size > MaxFileSizeBytes || attachment.Height > MaxImageHeight || attachment.Width > MaxImageWidth)
             {
                 _logger.LogWarning($"Attachment {attachment.Filename} exceeds the size or dimension limits. (Size: {attachment.Size / 1024} KB, Dimensions: {attachment.Width}x{attachment.Height}) it will be resized.");
                 imageData = await ProcessImage(attachment, imageData);
                 mimeType = "image/jpeg"; // Assume JPEG after processing
+                isResized = true;
             }
             if (imageData == null || imageData.Length == 0)
             {
@@ -57,15 +65,19 @@ public class DiscordImageHandler
                 continue;
             }
 
-            var imageDescription = await _binaryImageToDescriptionHandler(imageData, mimeType);
-            if (!string.IsNullOrWhiteSpace(imageDescription))
+            var imageAttachment = new ImageAttachment
             {
-                descriptionBuilder.AppendLine($"[IMG:{attachment.Filename}]{imageDescription}[/IMG]");
-            }
+                Filename = attachment.Filename,
+                Size = attachment.Size,
+                Width = attachment.Width ?? 0,
+                Height = attachment.Height ?? 0,
+                IsResized = isResized,
+                MimeType = mimeType,
+                Data = imageData
+            };
         }
-
-        var result = descriptionBuilder.ToString();
-        return string.IsNullOrWhiteSpace(result) ? null : result;
+        
+        return imageAttachments.Count > 0 ? imageAttachments : null;
     }
 
     private static readonly Dictionary<string, string> ImageExtensionToMimeType = new(StringComparer.OrdinalIgnoreCase)
@@ -111,7 +123,7 @@ public class DiscordImageHandler
             if (originalWidth > MaxImageWidth || originalHeight > MaxImageHeight)
             {
                 using var resizedImage = ResizeImage(image, MaxImageWidth, MaxImageHeight);
-                
+
                 // Save or process the resized image
                 var resizedData = await ConvertImageToJpeg(resizedImage);
                 _logger.LogWarning($"Resized image to: {resizedImage.Width}x{resizedImage.Height} Size reduced from {imageData.Length / 1024} KB to {resizedData.Length / 1024} KB");

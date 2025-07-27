@@ -36,7 +36,7 @@ public class WernstromService : BackgroundService
 
     private DiscordSocketClient? _client;
 
-    private DiscordImageHandler ImageHandler { get; init; }
+    private DiscordImageProcessor ImageHandler { get; init; }
 
     public DiscordSocketClient Client => _client ?? throw new InvalidOperationException("Discord client is not initialized.");
 

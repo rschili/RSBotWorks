@@ -3,6 +3,7 @@
         "**/.vs": true,
         "**/bin/": true,
         "**/obj/": true,
+        "**/out/": true,
         "**/TestResults/": true
     },
     "dotnet.testWindow.useTestingPlatformProtocol": true,
