@@ -90,7 +90,7 @@ public static class BuilderExtensions
 
     public static IKernelBuilder SetupKernel(this IKernelBuilder builder, IConfig config)
     {
-        IChatClient client = new AnthropicClient(new APIAuthentication(config.ClaudeApiKey)).Messages.AsBuilder().UseKernelFunctionInvocation().Build();
+        IChatClient client = new AnthropicClient(new APIAuthentication(config.ClaudeApiKey)).Messages.AsBuilder().UseFunctionInvocation().Build();
         var chatService = client.AsChatCompletionService();
         builder.Services.AddSingleton(chatService);
         builder.Services.AddSingleton(new HomeAssistantPluginConfig()

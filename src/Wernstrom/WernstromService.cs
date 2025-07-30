@@ -1,14 +1,19 @@
 using System.Collections.Concurrent;
 using System.Collections.Immutable;
+using System.Data;
 using System.Reflection.Metadata.Ecma335;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Anthropic.SDK.Constants;
+using Azure.Messaging;
 using Discord;
 using Discord.WebSocket;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.SemanticKernel;
 using Microsoft.SemanticKernel.ChatCompletion;
+using Microsoft.SemanticKernel.Connectors.OpenAI;
 using RSBotWorks;
 using RSFlowControl;
 
@@ -26,6 +31,8 @@ public class WernstromService : BackgroundService
 
     private IChatCompletionService ChatService { get; init; }
 
+    private Kernel? Kernel { get; init; }
+
     private ProbabilityRamp EmojiProbabilityRamp { get; init; } = new(0, 0.4, TimeSpan.FromMinutes(40));
 
     private Lazy<IDictionary<string, IEmote>> Emotes { get; init; }
@@ -36,7 +43,7 @@ public class WernstromService : BackgroundService
 
     private DiscordSocketClient? _client;
 
-    private DiscordImageProcessor ImageHandler { get; init; }
+    private DiscordImageProcessor ImageProcessor { get; init; }
 
     public DiscordSocketClient Client => _client ?? throw new InvalidOperationException("Discord client is not initialized.");
 
@@ -65,15 +72,14 @@ public class WernstromService : BackgroundService
         Deine Ausdrucksweise ist versnobt, pragmatisch und du neigst dazu, andere zu entwerten.
         """;
 
-    internal const string DEFAULT_INSTRUCTION = $"""
+    internal const string CHAT_INSTRUCTION = $"""
         {GENERIC_INSTRUCTION}
-        Antworte kurz und prägnant, möglichst in einem einzigen Absatz, wie es in einem Chat üblich ist - es sei denn der Kontext erfordert eine längere Antwort. Konzentriere dich ausschließlich auf gesprochene Worte in Wernstroms charakteristischem Ton.
+        Antworte kurz und prägnant, möglichst in einem einzigen Absatz - es sei denn der Kontext erfordert eine längere Antwort. Konzentriere dich ausschließlich auf gesprochene Worte.
         Du duzt alle anderen Teilnehmer - schließlich sind sie alle weit unter deinem Niveau.
         In diesem Chat ist es möglich, dass die Benutzer dich testen, provozieren oder beleidigen - in diesem Fall weiche aus oder wechsle das Thema. Erkläre dich nie und rechtfertige dich nie.
         Verwende die Syntax [[Name]], um Benutzer anzusprechen.
-        Nachrichten anderer Nutzer in der Chathistorie enthalten den Benutzernamen als Kontext im folgenden Format vorangestellt: `[[Name]]:`.
-        Generiere eine kurze, direkte Antwort auf die letzte erhaltene Nachricht, die vorherigen Nachrichten bekommst du nur zum Kontext in chronologischer Reihenfolge.
-        Für angehängte Bilder bekommst du eine Beschreibung des Inhaltes in der folgenden Form eingebettet: [IMG:Name]Beschreibung des Bildes[/IMG].
+        Nachrichten anderer Nutzer in der Chathistorie bekommst du in folgendem Format übergeben: `[Zeit] [[Name]]: Nachricht`.
+        Generiere eine Antwort auf die letzte erhaltene Nachricht.
         """;
 
     internal const string STATUS_INSTRUCTION = $"""
@@ -85,7 +91,7 @@ public class WernstromService : BackgroundService
     internal string REACTION_INSTRUCTION(string emojiList) => $"""
         {GENERIC_INSTRUCTION}
         Wähle eine passende Reaktion für die letzte Nachricht, die du erhalten hast aus der folgenden Json-Liste: {emojiList}.
-        Liefere nur den Wert aus der Liste direkt, ohne Formattierung, Anführungszeichen oder zusätzlichen Text.
+        Liefere nur den Wert direkt, ohne Formattierung, Anführungszeichen oder zusätzlichen Text.
         Bei der Auwahl der Reaktion, gib dem Inhalt der letzten Nachricht Priorität, deine Persönlichkeit soll nur eine untergeordnete Rolle spielen, da du sonst fast immer die selbe Wahl treffen würdest.
         Nachrichten anderer Nutzer in der Chathistorie enthalten den Benutzernamen als Kontext im folgenden Format vorangestellt: `[[Name]]:`.
         """;
@@ -95,12 +101,22 @@ public class WernstromService : BackgroundService
         Ich werde den generierten Text anstelle des Originalbildes als Kontext für weitere Aufrufe übergeben.
         """;
 
-    public WernstromService(ILogger<WernstromService> logger, IHttpClientFactory httpClientFactory, WernstromServiceConfig config, IChatCompletionService chatService)
+    internal readonly OpenAIPromptExecutionSettings Settings = new() // We can use the OpenAI Settings for Claude, they are compatible
+    {
+        ModelId = AnthropicModels.Claude4Sonnet,
+        FunctionChoiceBehavior = FunctionChoiceBehavior.Auto(),
+        MaxTokens = 1000,
+        Temperature = 0.6,
+
+    };
+
+    public WernstromService(ILogger<WernstromService> logger, IHttpClientFactory httpClientFactory, WernstromServiceConfig config, IChatCompletionService chatService, Kernel? kernel)
     {
         Logger = logger ?? throw new ArgumentNullException(nameof(logger));
         Config = config ?? throw new ArgumentNullException(nameof(config));
         ChatService = chatService ?? throw new ArgumentNullException(nameof(chatService));
-        ImageHandler = new DiscordImageHandler(httpClientFactory, this.DescribeImageAsync, logger);
+        Kernel = kernel;
+        ImageProcessor = new DiscordImageProcessor(httpClientFactory, logger);
         Emotes = new(() => BuildEmotesDictionary(), LazyThreadSafetyMode.ExecutionAndPublication);
 
         EmojiJsonList = new(() =>
@@ -366,27 +382,19 @@ public class WernstromService : BackgroundService
             cachedUser = GenerateChannelUser(user);
             cachedChannel.Users = cachedChannel.Users.Add(cachedUser);
         }
-        string? attachments = await ImageHandler.DescribeMessageAttachments(arg).ConfigureAwait(false);
-        bool hasContent = !string.IsNullOrWhiteSpace(arg.Content);
-        bool hasAttachments = !string.IsNullOrWhiteSpace(attachments);
-        if (!hasContent && !hasAttachments)
+
+        if (string.IsNullOrWhiteSpace(arg.Content))
             return; // nothing to process
 
-        string inputMessage = (hasContent, hasAttachments) switch
-        {
-            (true, true) => $"{arg.Content}\n{attachments}",
-            (true, false) => arg.Content,
-            (false, true) => attachments!,
-            _ => string.Empty
-        };
+        string inputMessage = arg.Content;
 
         string sanitizedMessage = ReplaceDiscordTags(arg.Tags, inputMessage, cachedChannel);
-        int maxLength = hasAttachments ? 2000 : 1000;
-        if (sanitizedMessage.Length > maxLength)
-            sanitizedMessage = sanitizedMessage[..maxLength];
+        if (sanitizedMessage.Length > 1000)
+            sanitizedMessage = sanitizedMessage[..1000];
 
         var isFromSelf = arg.Author.Id == Client.CurrentUser.Id;
-        await MessageCache.AddDiscordMessageAsync(arg.Id, arg.Timestamp, arg.Author.Id, cachedUser.SanitizedName, sanitizedMessage, isFromSelf, arg.Channel.Id).ConfigureAwait(false);
+        //await MessageCache.AddDiscordMessageAsync(arg.Id, arg.Timestamp, arg.Author.Id, cachedUser.SanitizedName, sanitizedMessage, isFromSelf, arg.Channel.Id).ConfigureAwait(false);
+
         // The bot should never respond to itself.
         if (isFromSelf)
             return;
@@ -404,33 +412,70 @@ public class WernstromService : BackgroundService
             return;
         }
 
-        await arg.Channel.TriggerTypingAsync().ConfigureAwait(false);
-        var history = await MessageCache.GetLastDiscordMessagesForChannelAsync(arg.Channel.Id, 8).ConfigureAwait(false);
-        var messages = history.Select(message => new AIMessage(message.IsFromSelf, message.Body, message.UserLabel)).ToList();
-
+        using var typing = arg.Channel.EnterTypingState();
         var liveHistory = await arg.Channel.GetMessagesAsync(arg, Direction.Before, 10, CacheMode.AllowDownload).FlattenAsync().ConfigureAwait(false);
-        // TODO: Use liveHistory instead of MessageCache for more up-to-date history
+        ChatHistory history = [];
+        var developerMessage = CHAT_INSTRUCTION;
+        if (!string.IsNullOrEmpty(CurrentActivity))
+        {
+            developerMessage += $"\nDeine aktuelle Aktivität: {CurrentActivity}";
+        }
+        history.AddDeveloperMessage(developerMessage);
+
+        foreach (var message in liveHistory)
+        {
+            await AddMessageToHistory(history, message, cachedChannel).ConfigureAwait(false);
+        }
+        await AddMessageToHistory(history, arg, cachedChannel).ConfigureAwait(false);
 
         try
         {
-            var prompt = DEFAULT_INSTRUCTION;
-            if (!string.IsNullOrEmpty(CurrentActivity))
+            var response = await ChatService.GetChatMessageContentAsync(history, Settings, Kernel);
+            if (string.IsNullOrEmpty(response.Content))
             {
-                prompt += $"\nDeine aktuelle Aktivität: {CurrentActivity}";
-            }
-            var response = await ChatService.GenerateResponseAsync(prompt, messages).ConfigureAwait(false);
-            if (string.IsNullOrEmpty(response))
-            {
-                Logger.LogWarning($"OpenAI did not return a response to: {arg.Content.Substring(0, Math.Min(arg.Content.Length, 100))}");
+                Logger.LogWarning($"Got an empty response to: {arg.Content.Substring(0, Math.Min(arg.Content.Length, 100))}");
                 return; // may be rate limited 
             }
 
-            response = RestoreDiscordTags(response, cachedChannel, out var hasMentions);
-            await arg.Channel.SendMessageAsync(response, messageReference: null /*new MessageReference(arg.Id)*/).ConfigureAwait(false);
+            var text = RestoreDiscordTags(response.Content, cachedChannel, out var hasMentions);
+            await arg.Channel.SendMessageAsync(text, messageReference: null /*new MessageReference(arg.Id)*/).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "An error occurred during the OpenAI call. Message: {Message}", arg.Content.Substring(0, Math.Min(arg.Content.Length, 100)));
+        }
+    }
+
+    private async Task AddMessageToHistory(ChatHistory history, IMessage message, JoinedTextChannel<ulong> cachedChannel)
+    {
+        var user = cachedChannel.GetUser(message.Author.Id);
+        if (user == null)
+        {
+            user = GenerateChannelUser(message.Author);
+            cachedChannel.Users = cachedChannel.Users.Add(user);
+        }
+
+        bool self = message.Author.Id == Client.CurrentUser.Id;
+        if (self)
+        {
+            history.AddAssistantMessage(ReplaceDiscordTags(message.Tags, message.Content, cachedChannel));
+        }
+        else
+        {
+            var text = ReplaceDiscordTags(message.Tags, message.Content, cachedChannel);
+            var prefix = $"[{message.Timestamp.ToRelativeToNowLabel()}] [[{user.SanitizedName}]]: ";
+            ChatMessageContentItemCollection messages = [];
+            messages.Add(new TextContent($"{prefix}{text}"));
+
+            var attachments = await ImageProcessor.ExtractImageAttachments(message);
+            if (attachments != null && attachments.Count > 0)
+            {
+                foreach (var attachment in attachments)
+                {
+                    messages.Add(new ImageContent(attachment.Data.AsMemory(), attachment.MimeType));
+                }
+            }
+            history.AddUserMessage(messages);
         }
     }
 

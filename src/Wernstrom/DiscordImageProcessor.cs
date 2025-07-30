@@ -32,7 +32,7 @@ public class DiscordImageProcessor
         _logger = logger ?? NullLogger<DiscordImageProcessor>.Instance;
     }
 
-    public async Task<IList<ImageAttachment>?> ExtractImageAttachments(SocketMessage message)
+    public async Task<IList<ImageAttachment>?> ExtractImageAttachments(IMessage message)
     {
         if (message.Attachments.Count == 0)
             return null; // No Attachments to process
@@ -55,7 +55,7 @@ public class DiscordImageProcessor
             if (attachment.Size > MaxFileSizeBytes || attachment.Height > MaxImageHeight || attachment.Width > MaxImageWidth)
             {
                 _logger.LogWarning($"Attachment {attachment.Filename} exceeds the size or dimension limits. (Size: {attachment.Size / 1024} KB, Dimensions: {attachment.Width}x{attachment.Height}) it will be resized.");
-                imageData = await ProcessImage(attachment, imageData);
+                imageData = await ProcessImage(imageData);
                 mimeType = "image/jpeg"; // Assume JPEG after processing
                 isResized = true;
             }
@@ -112,7 +112,7 @@ public class DiscordImageProcessor
         return false;
     }
 
-    private async Task<byte[]> ProcessImage(Attachment attachment, byte[] imageData)
+    private async Task<byte[]> ProcessImage(byte[] imageData)
     {
         using (var image = SixLabors.ImageSharp.Image.Load(imageData))
         {
