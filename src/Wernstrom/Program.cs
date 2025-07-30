@@ -10,6 +10,7 @@ using Microsoft.SemanticKernel;
 using Microsoft.SemanticKernel.ChatCompletion;
 using RSBotWorks.Plugins;
 using Microsoft.SemanticKernel.Connectors.OpenAI;
+using Microsoft.Extensions.Options;
 
 Console.WriteLine($"Current user: {Environment.UserName}");
 Console.WriteLine("Loading config...");
@@ -28,8 +29,8 @@ var builder = Host.CreateApplicationBuilder();
 var services = builder.Services;
 builder.Logging.SetupLogging(config);
 services.AddSingleton<IConfig>(config)
-        .AddHttpClient()
-        .AddKernel().SetupKernel(config);
+        .AddHttpClient(Options.DefaultName).AddHttpMessageHandler<LoggingHttpHandler>(); // comment the second part to disable logging
+services.AddKernel().SetupKernel(config);
 using var host = builder.Build();
 
 /*chatService = kernel.GetRequiredService<IChatCompletionService>(); // re-get service because it may be wrapped in a proxy
