@@ -1,0 +1,212 @@
+using System.Collections.Immutable;
+using System.Data;
+using Anthropic.SDK.Constants;
+using Discord;
+using Discord.WebSocket;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+using Microsoft.SemanticKernel;
+using Microsoft.SemanticKernel.ChatCompletion;
+using Microsoft.SemanticKernel.Connectors.OpenAI;
+using RSBotWorks;
+using RSFlowControl;
+
+namespace Wernstrom;
+
+
+public partial class WernstromService : BackgroundService
+{
+    private ProbabilityRamp EmojiProbabilityRamp { get; init; } = new(0, 0.4, TimeSpan.FromMinutes(40));
+
+    private Lazy<IDictionary<string, IEmote>> Emotes { get; set; }
+
+    private Lazy<string> EmojiJsonList { get; set; }
+
+    internal string REACTION_INSTRUCTION(string emojiList) => $"""
+        {GENERIC_INSTRUCTION}
+        Wähle eine passende Reaktion für die letzte Nachricht, die du erhalten hast aus der folgenden Json-Liste: {emojiList}.
+        Liefere nur den Wert direkt, ohne Formattierung, Anführungszeichen oder zusätzlichen Text.
+        Bei der Auwahl der Reaktion, gib dem Inhalt der letzten Nachricht Priorität, deine Persönlichkeit soll nur eine untergeordnete Rolle spielen, da du sonst fast immer die selbe Wahl treffen würdest.
+        Nachrichten anderer Nutzer in der Chathistorie enthalten den Benutzernamen als Kontext im folgenden Format vorangestellt: `[[Name]]:`.
+        """;
+
+    internal readonly OpenAIPromptExecutionSettings ReactionSettings = new() // We can use the OpenAI Settings for Claude, they are compatible
+    {
+        ModelId = AnthropicModels.Claude4Sonnet,
+        FunctionChoiceBehavior = FunctionChoiceBehavior.None(),
+        MaxTokens = 50,
+        Temperature = 0.6,
+    };
+
+    private Dictionary<string, IEmote> BuildEmotesDictionary()
+    {
+        var emotes = Client.Guilds.SelectMany(g => g.Emotes)
+            .Where(e => e.IsAvailable == true)
+            .GroupBy(e => e.Name, StringComparer.OrdinalIgnoreCase);
+
+        var emotesDict = new Dictionary<string, IEmote>(StringComparer.OrdinalIgnoreCase);
+        foreach (var group in emotes)
+        {
+            var name = group.Key;
+            var value = group.First();
+            var desc = GetEmojiDescriptiveName(name);
+            if (desc == null)
+                continue;
+
+            emotesDict[desc] = value;
+        }
+
+        emotesDict["coffee"] = new Emoji("☕");
+        emotesDict["tea"] = new Emoji("🍵");
+        emotesDict["icecream"] = new Emoji("🍦");
+        emotesDict["croissant"] = new Emoji("🥐");
+        emotesDict["fried-egg"] = new Emoji("🍳");
+        emotesDict["whiskey"] = new Emoji("🥃");
+        emotesDict["baguette"] = new Emoji("🥖");
+        emotesDict["cheese"] = new Emoji("🧀");
+        emotesDict["honey"] = new Emoji("🍯");
+        emotesDict["milk"] = new Emoji("🥛");
+        emotesDict["alarm_clock"] = new Emoji("⏰");
+        emotesDict["pizza"] = new Emoji("🍕");
+        emotesDict["heart"] = new Emoji("❤️");
+        emotesDict["brain"] = new Emoji("🧠");
+        return emotesDict;
+    }
+
+    private string? GetEmojiDescriptiveName(string name) =>
+        name switch
+        {
+            "pepe_cry" => "pepe-cry",
+            "quinkerella" => "cat",
+            "avery" => "dog",
+            "sidus2" => "groundhog",
+            "coins" => "coins",
+            "banking" => "treasure",
+            "disgusted" => "disgusted",
+            "zonk" => "fail",
+            "gustaff" => "silly-face",
+            "evil" => "evil-grin",
+            "salt" => "salt",
+            "louisdefunes_lol" => "lol",
+            "louisdefunes_shocked" => "shocked",
+            "troll" => "troll",
+            "homerdrool" => "tasty",
+            "facepalmpicard" => "disappointed",
+            "homer" => "yay",
+            "nsfw" => "nsfw",
+            "wernstrom" => "wernstrom",
+            "hypnotoad" => "hypnotoad",
+            "zoidberg" => "zoidberg",
+            "farnsworth" => "farnsworth",
+            "angry_sun" => "angry-sun",
+            _ => null // no description available
+        };
+
+    private static readonly ImmutableHashSet<string> CoffeeKeywords = ImmutableHashSet.Create(
+        StringComparer.OrdinalIgnoreCase,
+        "moin",
+        "hi",
+        "morgen",
+        "morgn",
+        "guten morgen",
+        "servus",
+        "servas",
+        "dere",
+        "oida",
+        "porst",
+        "prost",
+        "grias di",
+        "gude",
+        "spinotwachtldroha",
+        "scheipi",
+        "heisl",
+        "gschissana",
+        "christkindl");
+
+    private async Task HandleReactionsAsync(SocketMessage arg, JoinedTextChannel<ulong> cachedChannel)
+    {
+        if (CoffeeKeywords.Contains(arg.Content.Trim()))
+        {
+            var breakfasts = new string[]
+            {
+                "☕",
+                "🍵",
+                "🍦",
+                "🥐",
+                "🥯",
+                "🍳",
+                "🥃",
+                "🥖",
+                "🧀",
+                "🍯",
+                "🥛",
+                "🍕",
+                "🍌",
+                "🍎",
+                "🍊",
+                "🍋",
+                "🍓",
+                "🥑",
+                "🥦",
+                "🥕",
+                "🍔",
+                "🍟",
+                "🌭",
+                "🥨",
+                "🥗",
+                "🍰",
+                "🧁",
+                "🍩",
+                "🍪",
+                "🍫",
+                "🍬",
+                "🍭",
+                "🍮",
+            };
+            var emoji = breakfasts[Random.Shared.Next(breakfasts.Length)];
+            await arg.AddReactionAsync(new Emoji(emoji)).ConfigureAwait(false);
+            return;
+        }
+
+        var shouldReact = EmojiProbabilityRamp.Check();
+        if (!shouldReact)
+            return;
+
+        var liveHistory = await arg.Channel.GetMessagesAsync(arg, Direction.Before, 3, CacheMode.AllowDownload).FlattenAsync().ConfigureAwait(false);
+        ChatHistory history = [];
+        history.AddDeveloperMessage(REACTION_INSTRUCTION(EmojiJsonList.Value));
+        foreach (var message in liveHistory)
+        {
+            await AddMessageToHistory(history, message, cachedChannel).ConfigureAwait(false);
+        }
+        await AddMessageToHistory(history, arg, cachedChannel).ConfigureAwait(false);
+
+        try
+        {
+            var reaction = await ChatService.GetChatMessageContentAsync(history, Settings, Kernel);
+            if (string.IsNullOrEmpty(reaction.Content))
+            {
+                Logger.LogWarning("AI did not return a reaction for the message: {Message}", arg.Content.Substring(0, Math.Min(arg.Content.Length, 100)));
+                return; // may be rate limited 
+            }
+            if (Emotes.Value.TryGetValue(reaction.Content, out var guildEmote))
+            {
+                await arg.AddReactionAsync(guildEmote).ConfigureAwait(false);
+                return;
+            }
+
+            // Try to add as unicode emoji
+            if (!Emoji.TryParse(reaction.Content, out var emoji))
+            {
+                Logger.LogWarning("Could not parse emoji from reaction: {Reaction}", reaction);
+                return;
+            }
+
+            await arg.AddReactionAsync(emoji).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "An error occurred while adding a reaction to the message: {Message}", arg.Content.Substring(0, Math.Min(arg.Content.Length, 100)));
+        }
+    }
+}

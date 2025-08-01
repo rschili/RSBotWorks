@@ -1,11 +1,10 @@
 using Discord;
-using Discord.WebSocket;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.Processing;
 using SixLabors.ImageSharp.Formats.Jpeg;
-using System.Text;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
+
+namespace Wernstrom;
 
 public record ImageAttachment
 {
@@ -18,19 +17,16 @@ public record ImageAttachment
     public required byte[] Data { get; set; }
 }
 
-public class DiscordImageProcessor
+public partial class WernstromService
 {
-    private readonly IHttpClientFactory _httpClientFactory;
-    private readonly ILogger _logger;
     private const int MaxImageWidth = 784;
     private const int MaxImageHeight = MaxImageWidth;
     private const int MaxFileSizeBytes = 2 * 1024 * 1024; // 2MB limit
 
-    public DiscordImageProcessor(IHttpClientFactory httpClientFactory, ILogger? logger = null)
-    {
-        _httpClientFactory = httpClientFactory ?? throw new ArgumentNullException(nameof(httpClientFactory), "HttpClientFactory cannot be null.");
-        _logger = logger ?? NullLogger<DiscordImageProcessor>.Instance;
-    }
+    internal const string IMAGE_INSTRUCTION = $"""
+        Beschreibe das Bild, das du übergeben bekommst prägnant und kurz in 1-3 Sätzen (je nach Menge der Details im Bild).
+        Ich werde den generierten Text anstelle des Originalbildes als Kontext für weitere Aufrufe übergeben.
+        """;
 
     public async Task<IList<ImageAttachment>?> ExtractImageAttachments(IMessage message)
     {
@@ -49,19 +45,19 @@ public class DiscordImageProcessor
                 continue;
             }
 
-            using var httpClient = _httpClientFactory.CreateClient();
+            using var httpClient = HttpClientFactory.CreateClient();
             var imageData = await httpClient.GetByteArrayAsync(attachment.Url);
             bool isResized = false;
             if (attachment.Size > MaxFileSizeBytes || attachment.Height > MaxImageHeight || attachment.Width > MaxImageWidth)
             {
-                _logger.LogWarning($"Attachment {attachment.Filename} exceeds the size or dimension limits. (Size: {attachment.Size / 1024} KB, Dimensions: {attachment.Width}x{attachment.Height}) it will be resized.");
+                Logger.LogWarning($"Attachment {attachment.Filename} exceeds the size or dimension limits. (Size: {attachment.Size / 1024} KB, Dimensions: {attachment.Width}x{attachment.Height}) it will be resized.");
                 imageData = await ProcessImage(imageData);
                 mimeType = "image/jpeg"; // Assume JPEG after processing
                 isResized = true;
             }
             if (imageData == null || imageData.Length == 0)
             {
-                _logger.LogWarning($"Failed to download or process image: {attachment.Filename}");
+                Logger.LogWarning($"Failed to download or process image: {attachment.Filename}");
                 continue;
             }
 
@@ -76,7 +72,7 @@ public class DiscordImageProcessor
                 Data = imageData
             };
         }
-        
+
         return imageAttachments.Count > 0 ? imageAttachments : null;
     }
 
@@ -126,12 +122,12 @@ public class DiscordImageProcessor
 
                 // Save or process the resized image
                 var resizedData = await ConvertImageToJpeg(resizedImage);
-                _logger.LogWarning($"Resized image to: {resizedImage.Width}x{resizedImage.Height} Size reduced from {imageData.Length / 1024} KB to {resizedData.Length / 1024} KB");
+                Logger.LogWarning($"Resized image to: {resizedImage.Width}x{resizedImage.Height} Size reduced from {imageData.Length / 1024} KB to {resizedData.Length / 1024} KB");
                 return resizedData;
             }
 
             var processedData = await ConvertImageToJpeg(image);
-            _logger.LogWarning($"Size reduced from {imageData.Length / 1024} KB to {processedData.Length / 1024} KB");
+            Logger.LogWarning($"Size reduced from {imageData.Length / 1024} KB to {processedData.Length / 1024} KB");
             return processedData;
         }
     }

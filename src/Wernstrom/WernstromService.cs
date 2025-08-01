@@ -1,12 +1,9 @@
-using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using System.Data;
-using System.Reflection.Metadata.Ecma335;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Anthropic.SDK.Constants;
-using Azure.Messaging;
 using Discord;
 using Discord.WebSocket;
 using Microsoft.Extensions.Hosting;
@@ -15,7 +12,6 @@ using Microsoft.SemanticKernel;
 using Microsoft.SemanticKernel.ChatCompletion;
 using Microsoft.SemanticKernel.Connectors.OpenAI;
 using RSBotWorks;
-using RSFlowControl;
 
 namespace Wernstrom;
 
@@ -24,7 +20,7 @@ public class WernstromServiceConfig
     public required string DiscordToken { get; set; }
 }
 
-public class WernstromService : BackgroundService
+public partial class WernstromService : BackgroundService
 {
     public ILogger Logger { get; init; }
     private WernstromServiceConfig Config { get; init; }
@@ -33,35 +29,17 @@ public class WernstromService : BackgroundService
 
     private Kernel? Kernel { get; init; }
 
-    private ProbabilityRamp EmojiProbabilityRamp { get; init; } = new(0, 0.4, TimeSpan.FromMinutes(40));
-
-    private Lazy<IDictionary<string, IEmote>> Emotes { get; init; }
-
-    private Lazy<string> EmojiJsonList { get; init; }
-
     public bool IsRunning { get; private set; }
 
     private DiscordSocketClient? _client;
 
-    private DiscordImageProcessor ImageProcessor { get; init; }
+    private IHttpClientFactory HttpClientFactory { get; init; }
 
     public DiscordSocketClient Client => _client ?? throw new InvalidOperationException("Discord client is not initialized.");
 
     private ChannelUserCache<ulong> Cache { get; set; } = new();
 
     public ImmutableArray<JoinedTextChannel<ulong>> TextChannels => Cache.Channels;
-
-    private List<string> RollCommandNames = new()
-    {
-        "rnd",
-        "roll",
-        "rand",
-        "random"
-    };
-
-    private ConcurrentQueue<string> StatusMessages = new();
-    private DateTimeOffset LastStatusUpdate = DateTimeOffset.MinValue;
-    private string? CurrentActivity = null;
 
     internal const string GENERIC_INSTRUCTION = $"""
         Simuliere Professor Ogden Wernstrom in einem Discord Chat.
@@ -82,32 +60,12 @@ public class WernstromService : BackgroundService
         Generiere eine Antwort auf die letzte erhaltene Nachricht.
         """;
 
-    internal const string STATUS_INSTRUCTION = $"""
-        {GENERIC_INSTRUCTION}
-        Generiere fünf Statusmeldungen für deinen Benutzerstatus.
-        Jede Meldung soll extrem kurz sein und eine aktuelle Tätigkeit oder einen Slogan von dir enthalten.
-        """;
-
-    internal string REACTION_INSTRUCTION(string emojiList) => $"""
-        {GENERIC_INSTRUCTION}
-        Wähle eine passende Reaktion für die letzte Nachricht, die du erhalten hast aus der folgenden Json-Liste: {emojiList}.
-        Liefere nur den Wert direkt, ohne Formattierung, Anführungszeichen oder zusätzlichen Text.
-        Bei der Auwahl der Reaktion, gib dem Inhalt der letzten Nachricht Priorität, deine Persönlichkeit soll nur eine untergeordnete Rolle spielen, da du sonst fast immer die selbe Wahl treffen würdest.
-        Nachrichten anderer Nutzer in der Chathistorie enthalten den Benutzernamen als Kontext im folgenden Format vorangestellt: `[[Name]]:`.
-        """;
-
-    internal const string IMAGE_INSTRUCTION = $"""
-        Beschreibe das Bild, das du übergeben bekommst prägnant und kurz in 1-3 Sätzen (je nach Menge der Details im Bild).
-        Ich werde den generierten Text anstelle des Originalbildes als Kontext für weitere Aufrufe übergeben.
-        """;
-
     internal readonly OpenAIPromptExecutionSettings Settings = new() // We can use the OpenAI Settings for Claude, they are compatible
     {
         ModelId = AnthropicModels.Claude4Sonnet,
         FunctionChoiceBehavior = FunctionChoiceBehavior.Auto(),
         MaxTokens = 1000,
         Temperature = 0.6,
-
     };
 
     public WernstromService(ILogger<WernstromService> logger, IHttpClientFactory httpClientFactory, WernstromServiceConfig config, IChatCompletionService chatService, Kernel? kernel)
@@ -116,7 +74,8 @@ public class WernstromService : BackgroundService
         Config = config ?? throw new ArgumentNullException(nameof(config));
         ChatService = chatService ?? throw new ArgumentNullException(nameof(chatService));
         Kernel = kernel;
-        ImageProcessor = new DiscordImageProcessor(httpClientFactory, logger);
+        HttpClientFactory = httpClientFactory ?? throw new ArgumentNullException(nameof(httpClientFactory));
+
         Emotes = new(() => BuildEmotesDictionary(), LazyThreadSafetyMode.ExecutionAndPublication);
 
         EmojiJsonList = new(() =>
@@ -125,70 +84,6 @@ public class WernstromService : BackgroundService
             return JsonSerializer.Serialize(emotes);
         }, LazyThreadSafetyMode.ExecutionAndPublication);
     }
-
-    private Dictionary<string, IEmote> BuildEmotesDictionary()
-    {
-        var emotes = Client.Guilds.SelectMany(g => g.Emotes)
-            .Where(e => e.IsAvailable == true)
-            .GroupBy(e => e.Name, StringComparer.OrdinalIgnoreCase);
-
-        var emotesDict = new Dictionary<string, IEmote>(StringComparer.OrdinalIgnoreCase);
-        foreach (var group in emotes)
-        {
-            var name = group.Key;
-            var value = group.First();
-            var desc = GetEmojiDescriptiveName(name);
-            if (desc == null)
-                continue;
-
-            emotesDict[desc] = value;
-        }
-
-        emotesDict["coffee"] = new Emoji("☕");
-        emotesDict["tea"] = new Emoji("🍵");
-        emotesDict["icecream"] = new Emoji("🍦");
-        emotesDict["croissant"] = new Emoji("🥐");
-        emotesDict["fried-egg"] = new Emoji("🍳");
-        emotesDict["whiskey"] = new Emoji("🥃");
-        emotesDict["baguette"] = new Emoji("🥖");
-        emotesDict["cheese"] = new Emoji("🧀");
-        emotesDict["honey"] = new Emoji("🍯");
-        emotesDict["milk"] = new Emoji("🥛");
-        emotesDict["alarm_clock"] = new Emoji("⏰");
-        emotesDict["pizza"] = new Emoji("🍕");
-        emotesDict["heart"] = new Emoji("❤️");
-        emotesDict["brain"] = new Emoji("🧠");
-        return emotesDict;
-    }
-
-    private string? GetEmojiDescriptiveName(string name) =>
-        name switch
-        {
-            "pepe_cry" => "pepe-cry",
-            "quinkerella" => "cat",
-            "avery" => "dog",
-            "sidus2" => "groundhog",
-            "coins" => "coins",
-            "banking" => "treasure",
-            "disgusted" => "disgusted",
-            "zonk" => "fail",
-            "gustaff" => "silly-face",
-            "evil" => "evil-grin",
-            "salt" => "salt",
-            "louisdefunes_lol" => "lol",
-            "louisdefunes_shocked" => "shocked",
-            "troll" => "troll",
-            "homerdrool" => "tasty",
-            "facepalmpicard" => "disappointed",
-            "homer" => "yay",
-            "nsfw" => "nsfw",
-            "wernstrom" => "wernstrom",
-            "hypnotoad" => "hypnotoad",
-            "zoidberg" => "zoidberg",
-            "farnsworth" => "farnsworth",
-            "angry_sun" => "angry-sun",
-            _ => null // no description available
-        };
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -244,17 +139,7 @@ public class WernstromService : BackgroundService
 
         try
         {
-            foreach (var commandName in RollCommandNames)
-            {
-                var commandBuilder = new SlashCommandBuilder()
-                    .WithContextTypes(InteractionContextType.Guild, InteractionContextType.PrivateChannel)
-                    .WithName(commandName)
-                    .WithDescription("Rolls a random number.")
-                    .AddOption("range", ApplicationCommandOptionType.String, "One or two numbers separated by a space or slash.", isRequired: false);
-                await _client.CreateGlobalApplicationCommandAsync(commandBuilder.Build()).ConfigureAwait(false);
-
-                Logger.LogInformation("Created slash command: {CommandName}", commandName);
-            }
+            await RegisterCommandsAsync();
         }
         catch (Exception ex)
         {
@@ -276,69 +161,6 @@ public class WernstromService : BackgroundService
         }, TaskContinuationOptions.OnlyOnFaulted);
         return Task.CompletedTask;
     }
-
-    private async Task SlashCommandExecuted(SocketSlashCommand command)
-    {
-        try
-        {
-            string commandName = command.Data.Name;
-            if (RollCommandNames.Contains(commandName))
-            {
-                await RollCommandExecuted(command);
-                return;
-            }
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "An error occurred while processing a slash command. Name: {Name}, Input was: {Input}", command.CommandName, command.Data.ToString());
-            await command.RespondAsync($"Sorry das hat nicht funktioniert.", ephemeral: true).ConfigureAwait(false);
-        }
-    }
-
-    private async Task RollCommandExecuted(SocketSlashCommand command)
-    {
-        int lowerBound = 1;
-        int upperBound = 100;
-        var rangeOption = command.Data.Options.FirstOrDefault(o => o.Name == "range");
-        if (rangeOption != null)
-        {
-            var rangeString = rangeOption.Value.ToString();
-            if (!string.IsNullOrWhiteSpace(rangeString))
-            {
-                (lowerBound, upperBound) = ParseRangeOption(rangeString);
-            }
-        }
-
-        int result = 0;
-        if (lowerBound == upperBound)
-            result = lowerBound;
-        else
-        {
-            var random = new Random();
-            result = random.Next(lowerBound, upperBound + 1);
-        }
-        await command.RespondAsync($"{MentionUtils.MentionUser(command.User.Id)} rolled a {result} ({lowerBound}-{upperBound})");
-    }
-
-    private (int LowerBound, int UpperBound) ParseRangeOption(string rangeOption)
-    {
-        if (string.IsNullOrWhiteSpace(rangeOption))
-            throw new ArgumentException("Range option cannot be null or empty.", nameof(rangeOption));
-
-        var parts = rangeOption.Split([' ', '-'], 2, StringSplitOptions.TrimEntries);
-        if (parts.Length == 1 && int.TryParse(parts[0], out int singleValue) && singleValue > 0)
-        {
-            return (1, singleValue);
-        }
-        else if (parts.Length == 2 && int.TryParse(parts[0], out int min) && int.TryParse(parts[1], out int max)
-            && min > 0 && max > 0 && min <= max)
-        {
-            return (min, max);
-        }
-
-        return (1, 100); // default range
-    }
-
 
     private Task LogAsync(LogMessage message)
     {
@@ -402,7 +224,7 @@ public class WernstromService : BackgroundService
         if (!ShouldRespond(arg))
         {
             // If we do not respond, we may want to handle reactions like coffee or similar
-            _ = Task.Run(() => HandleReactionsAsync(arg)).ContinueWith(task =>
+            _ = Task.Run(() => HandleReactionsAsync(arg, cachedChannel)).ContinueWith(task =>
             {
                 if (task.Exception != null)
                 {
@@ -442,7 +264,7 @@ public class WernstromService : BackgroundService
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "An error occurred during the OpenAI call. Message: {Message}", arg.Content.Substring(0, Math.Min(arg.Content.Length, 100)));
+            Logger.LogError(ex, "An error occurred during the AI call. Message: {Message}", arg.Content.Substring(0, Math.Min(arg.Content.Length, 100)));
         }
     }
 
@@ -467,7 +289,7 @@ public class WernstromService : BackgroundService
             ChatMessageContentItemCollection messages = [];
             messages.Add(new TextContent($"{prefix}{text}"));
 
-            var attachments = await ImageProcessor.ExtractImageAttachments(message);
+            var attachments = await ExtractImageAttachments(message);
             if (attachments != null && attachments.Count > 0)
             {
                 foreach (var attachment in attachments)
@@ -477,56 +299,6 @@ public class WernstromService : BackgroundService
             }
             history.AddUserMessage(messages);
         }
-    }
-
-
-    private async Task UpdateStatusAsync()
-    {
-        DateTimeOffset now = DateTimeOffset.UtcNow;
-        if (now - LastStatusUpdate < TimeSpan.FromMinutes(120))
-            return;
-
-        LastStatusUpdate = now;
-        if (StatusMessages.IsEmpty)
-        {
-            var newMessages = await CreateNewStatusMessages();
-            foreach (var msg in newMessages)
-            {
-                StatusMessages.Enqueue(msg);
-            }
-        }
-
-        var activity = StatusMessages.TryDequeue(out var statusMessage) ? statusMessage : null;
-        CurrentActivity = activity;
-        await Client.SetCustomStatusAsync(activity).ConfigureAwait(false);
-    }
-
-    internal async Task<List<string>> CreateNewStatusMessages()
-    {
-        List<string> statusMessages = [];
-        var response = await ChatService.GenerateResponseAsync(STATUS_INSTRUCTION, new List<AIMessage>(), ResponseKind.StructuredJsonArray).ConfigureAwait(false);
-        // response should be a json array
-        if (string.IsNullOrEmpty(response))
-        {
-            Logger.LogWarning("OpenAI did not return a response to generating status messages.");
-            return statusMessages;
-        }
-        using var doc = JsonDocument.Parse(response);
-        if (doc.RootElement.TryGetProperty("values", out var valuesElement) && valuesElement.ValueKind == JsonValueKind.Array)
-        {
-            foreach (var item in valuesElement.EnumerateArray())
-            {
-                var trimmedMessage = item.GetString()?.Trim();
-                if (!string.IsNullOrWhiteSpace(trimmedMessage) && trimmedMessage.Length < 50)
-                    statusMessages.Add(trimmedMessage);
-            }
-        }
-        else
-        {
-            Logger.LogWarning("OpenAI did not return a valid 'values' array for status messages: {Response}", response);
-        }
-
-        return statusMessages;
     }
 
     private bool ShouldRespond(SocketMessage arg)
@@ -609,10 +381,11 @@ public class WernstromService : BackgroundService
         return guildUser?.Nickname ?? user?.GlobalName ?? user?.Username ?? "";
     }
 
-    public void Dispose()
+    public override void Dispose()
     {
         _client?.Dispose();
         _client = null;
+        base.Dispose();
     }
 
     private async Task InitializeCache()
@@ -650,126 +423,5 @@ public class WernstromService : BackgroundService
         var displayName = GetDisplayName(user);
         var sanitizedName = NameSanitizer.IsValidName(displayName) ? displayName : NameSanitizer.SanitizeName(displayName);
         return new ChannelUser<ulong>(user.Id, displayName, sanitizedName);
-    }
-
-    private static readonly ImmutableHashSet<string> CoffeeKeywords = ImmutableHashSet.Create(
-        StringComparer.OrdinalIgnoreCase,
-        "moin",
-        "hi",
-        "morgen",
-        "morgn",
-        "guten morgen",
-        "servus",
-        "servas",
-        "dere",
-        "oida",
-        "porst",
-        "prost",
-        "grias di",
-        "gude",
-        "spinotwachtldroha",
-        "scheipi",
-        "heisl",
-        "gschissana",
-        "christkindl");
-
-    private async Task HandleReactionsAsync(SocketMessage arg)
-    {
-        if (CoffeeKeywords.Contains(arg.Content.Trim()))
-        {
-            var breakfasts = new string[]
-            {
-                "☕",
-                "🍵",
-                "🍦",
-                "🥐",
-                "🥯",
-                "🍳",
-                "🥃",
-                "🥖",
-                "🧀",
-                "🍯",
-                "🥛",
-                "🍕",
-                "🍌",
-                "🍎",
-                "🍊",
-                "🍋",
-                "🍓",
-                "🥑",
-                "🥦",
-                "🥕",
-                "🍔",
-                "🍟",
-                "🌭",
-                "🥨",
-                "🥗",
-                "🍰",
-                "🧁",
-                "🍩",
-                "🍪",
-                "🍫",
-                "🍬",
-                "🍭",
-                "🍮",
-            };
-            var emoji = breakfasts[Random.Shared.Next(breakfasts.Length)];
-            await arg.AddReactionAsync(new Emoji(emoji)).ConfigureAwait(false);
-            return;
-        }
-
-        var shouldReact = EmojiProbabilityRamp.Check();
-        if (!shouldReact)
-            return;
-
-        var history = await MessageCache.GetLastDiscordMessagesForChannelAsync(arg.Channel.Id, 4).ConfigureAwait(false);
-        var messages = history.Select(message => new AIMessage(message.IsFromSelf, message.Body, message.UserLabel)).ToList();
-        var reaction = await ChatService.GenerateResponseAsync(REACTION_INSTRUCTION(EmojiJsonList.Value), messages, ResponseKind.NoTools).ConfigureAwait(false);
-        if (string.IsNullOrEmpty(reaction))
-        {
-            Logger.LogWarning("OpenAI did not return a reaction for the message: {Message}", arg.Content.Substring(0, Math.Min(arg.Content.Length, 100)));
-            return; // may be rate limited 
-        }
-
-        try
-        {
-            if (Emotes.Value.TryGetValue(reaction, out var guildEmote))
-            {
-                await arg.AddReactionAsync(guildEmote).ConfigureAwait(false);
-                return;
-            }
-
-            // Try to add as unicode emoji
-            if (!Emoji.TryParse(reaction, out var emoji))
-            {
-                Logger.LogWarning("Could not parse emoji from reaction: {Reaction}", reaction);
-                return;
-            }
-
-            await arg.AddReactionAsync(emoji).ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "An error occurred while adding a reaction to the message: {Message}", arg.Content.Substring(0, Math.Min(arg.Content.Length, 100)));
-        }
-    }
-
-    private async Task<string> DescribeImageAsync(byte[] imageBytes, string mimeType)
-    {
-        try
-        {
-            var response = await ChatService.DescribeImageAsync(IMAGE_INSTRUCTION, imageBytes, mimeType).ConfigureAwait(false);
-            if (string.IsNullOrEmpty(response))
-            {
-                Logger.LogWarning("OpenAI did not return a description for the image.");
-                return "Sorry, I could not describe the image.";
-            }
-            return response;
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "An error occurred while describing an image.");
-            return "Sorry, I could not describe the image due to an error.";
-        }
     }
 }

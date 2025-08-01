@@ -2,6 +2,8 @@
 using Microsoft.SemanticKernel;
 using Microsoft.SemanticKernel.Memory;
 
+namespace RSBotWorks;
+
 public class ChatHistoryManager
 {
     private readonly ISemanticTextMemory _memory;
@@ -23,7 +25,7 @@ public class ChatHistoryManager
         // Zu RAG-Memory hinzufügen für Langzeithistorie
         var memoryId = $"{sessionId}_{DateTime.UtcNow:yyyyMMddHHmmss}";
         var messageText = $"{message.Role}: {message.Content}";
-        
+
         await _memory.SaveInformationAsync(
             MEMORY_COLLECTION,
             messageText,
@@ -58,7 +60,7 @@ public class ChatHistoryManager
             relevantHistory.Add($"[{result.Metadata.AdditionalMetadata}] {result.Metadata.Text}");
         }
 
-        return relevantHistory.Any() 
+        return relevantHistory.Any()
             ? $"Relevante frühere Unterhaltungen:\n{string.Join("\n", relevantHistory)}\n\n"
             : "";
     }
