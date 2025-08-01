@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Data;
+using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -181,7 +182,7 @@ public partial class WernstromService : BackgroundService
 
     private async Task MessageReceivedAsync(SocketMessage arg)
     {
-        await UpdateStatusAsync();
+        //await UpdateStatusAsync();
         if (arg.Type != MessageType.Default && arg.Type != MessageType.Reply)
             return;
 
@@ -235,8 +236,15 @@ public partial class WernstromService : BackgroundService
             return;
         }
 
+        var stopwatch = Stopwatch.StartNew();
         using var typing = arg.Channel.EnterTypingState();
+        stopwatch.Stop();
+        Logger.LogDebug("It took {Seconds:F3}s to enter typing", stopwatch.Elapsed.TotalSeconds);
+
+        stopwatch.Restart();
         var liveHistory = await arg.Channel.GetMessagesAsync(arg, Direction.Before, 10, CacheMode.AllowDownload).FlattenAsync().ConfigureAwait(false);
+        stopwatch.Stop();
+        Logger.LogDebug("It took {Seconds:F3}s to load live history", stopwatch.Elapsed.TotalSeconds);
         ChatHistory history = [];
         var developerMessage = CHAT_INSTRUCTION;
         if (!string.IsNullOrEmpty(CurrentActivity))
@@ -245,15 +253,22 @@ public partial class WernstromService : BackgroundService
         }
         history.AddDeveloperMessage(developerMessage);
 
+        stopwatch.Restart();
         foreach (var message in liveHistory)
         {
             await AddMessageToHistory(history, message, cachedChannel).ConfigureAwait(false);
         }
         await AddMessageToHistory(history, arg, cachedChannel).ConfigureAwait(false);
+        stopwatch.Stop();
+        Logger.LogDebug("It took {Seconds:F3}s to construct message history", stopwatch.Elapsed.TotalSeconds);
 
         try
         {
+            stopwatch.Restart();
             var response = await ChatService.GetChatMessageContentAsync(history, Settings, Kernel);
+            stopwatch.Stop();
+            Logger.LogDebug("It took {Seconds:F3}s to get response from AI", stopwatch.Elapsed.TotalSeconds);
+
             if (string.IsNullOrEmpty(response.Content))
             {
                 Logger.LogWarning($"Got an empty response to: {arg.Content.Substring(0, Math.Min(arg.Content.Length, 100))}");

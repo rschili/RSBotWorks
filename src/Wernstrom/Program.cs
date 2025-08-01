@@ -9,8 +9,8 @@ using Anthropic.SDK;
 using Microsoft.SemanticKernel;
 using Microsoft.SemanticKernel.ChatCompletion;
 using RSBotWorks.Plugins;
-using Microsoft.SemanticKernel.Connectors.OpenAI;
 using Microsoft.Extensions.Options;
+using System.Reflection.Metadata.Ecma335;
 
 Console.WriteLine($"Current user: {Environment.UserName}");
 Console.WriteLine("Loading config...");
@@ -29,6 +29,7 @@ var builder = Host.CreateApplicationBuilder();
 var services = builder.Services;
 builder.Logging.SetupLogging(config);
 services.AddSingleton<IConfig>(config)
+        .AddSingleton<LoggingHttpHandler>()
         .AddHttpClient(Options.DefaultName).AddHttpMessageHandler<LoggingHttpHandler>(); // comment the second part to disable logging
 services.AddKernel().SetupKernel(config);
 
@@ -40,18 +41,9 @@ services.AddSingleton(wernstromConfig);
 services.AddHostedService<WernstromService>();
 using var host = builder.Build();
 
-
 try
 {
-    //var messageCache = await SqliteMessageCache.CreateAsync(config.SqliteDbPath).ConfigureAwait(false);
     await host.RunAsync();
-    /*using var runner = new Runner(
-        loggerFactory.CreateLogger<Runner>(),
-        httpClientFactory,
-        config,
-        messageCache,
-        openAIService);
-    await runner.ExecuteAsync(CancellationToken.None).ConfigureAwait(false);*/
 }
 catch (Exception ex)
 {
@@ -107,11 +99,12 @@ public static class BuilderExtensions
         builder.Services.AddSingleton(new WeahterPluginConfig() { ApiKey = config.OpenWeatherMapApiKey });
 
         var plugins = builder.Plugins;
-        plugins.AddFromType<LightsPlugin>()
+        plugins//.AddFromType<LightsPlugin>()
                .AddFromType<HomeAssistantPlugin>()
                //.AddFromType<ListPluginsPlugin>()
                .AddFromType<NewsPlugin>()
                .AddFromType<WeatherPlugin>();
+
         return builder;
     }
 }
