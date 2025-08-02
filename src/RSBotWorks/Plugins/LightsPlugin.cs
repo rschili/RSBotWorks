@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Text.Json.Serialization;
 using Microsoft.SemanticKernel;
+using RSBotWorks.UniversalAI;
 
 namespace RSBotWorks.Plugins;
 
@@ -14,14 +15,14 @@ public class LightsPlugin
         new LightModel { Id = 3, Name = "Shelf Lights", IsOn = true, Brightness = 75, ColorHex = "FFD8B1" }
     };
 
-    [KernelFunction("get_lights")]
+    [LocalFunction("get_lights")]
     [Description("Gets a list of lights and their current state")]
     public Task<List<LightModel>> GetLightsAsync()
     {
         return Task.FromResult(lights);
     }
 
-    [KernelFunction("get_state")]
+    [LocalFunction("get_state")]
     [Description("Gets the state of a particular light")]
     public Task<LightModel?> GetStateAsync([Description("The ID of the light")] int id)
     {
@@ -29,7 +30,7 @@ public class LightsPlugin
         return Task.FromResult(lights.FirstOrDefault(light => light.Id == id));
     }
 
-    [KernelFunction("change_state")]
+    [LocalFunction("change_state")]
     [Description("Changes the state of the light")]
     public Task<LightModel?> ChangeStateAsync([Description("The ID of the light")]int id, [Description("New parameters for the light")]LightModel LightModel)
     {

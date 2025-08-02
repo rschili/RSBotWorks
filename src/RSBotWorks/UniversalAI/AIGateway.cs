@@ -1,4 +1,5 @@
 using Anthropic.SDK;
+using Anthropic.SDK.Common;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -56,4 +57,29 @@ internal abstract class TypedChatClient<TNativeClient> : ChatClient
             disposable.Dispose();
         }
     }
+}
+
+public enum ToolChoiceType
+{
+    Auto,
+    None
+}
+
+public record ChatConfig
+{
+    public int MaxTokens { get; set; }
+
+    public decimal? Temperature { get; set; }
+
+    public int? TopK { get; set; }
+
+    public decimal? TopP { get; set; }
+
+    public ToolChoiceType ToolChoiceType { get; set; } = ToolChoiceType.Auto;
+
+    public bool DisableParallelToolUses { get; set; } = false;
+
+    public bool EnableWebSearch { get; set; } = false;
+
+    public Tool[]
 }

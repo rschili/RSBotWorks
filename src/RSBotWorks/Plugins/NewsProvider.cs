@@ -4,6 +4,7 @@ using System.Xml;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.SemanticKernel;
+using RSBotWorks.UniversalAI;
 
 namespace RSBotWorks.Plugins;
 
@@ -22,7 +23,7 @@ public class NewsPlugin
         Logger = logger ?? NullLogger<NewsPlugin>.Instance;
     }
 
-    [KernelFunction("heise_headlines")]
+    [LocalFunction("heise_headlines")]
     [Description("Get the latest headlines from Heise Online (Technology related news)")]
     public async Task<string> GetHeiseHeadlinesAsync(int count = 5)
     {
@@ -46,7 +47,7 @@ public class NewsPlugin
         return result;
     }
 
-    [KernelFunction("postillon_headlines")]
+    [LocalFunction("postillon_headlines")]
     [Description("Get the latest headlines from Der Postillon (german satire magazine)")]
     public async Task<string> GetPostillonHeadlinesAsync(int count = 5)
     {

@@ -4,6 +4,7 @@ using HADotNet.Core.Clients;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.SemanticKernel;
+using RSBotWorks.UniversalAI;
 
 namespace RSBotWorks.Plugins;
 
@@ -37,7 +38,7 @@ public class HomeAssistantPlugin
         Logger = logger ?? NullLogger<HomeAssistantPlugin>.Instance;
     }
 
-    [KernelFunction("car_status")]
+    [LocalFunction("car_status")]
     [Description("Get current status of the EV car of the user krael aka noppel (charge, range, doors, etc.)")]
     public async Task<string> GetCarStatusAsync()
     {

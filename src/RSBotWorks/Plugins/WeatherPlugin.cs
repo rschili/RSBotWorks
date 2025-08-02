@@ -4,6 +4,7 @@ using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.SemanticKernel;
+using RSBotWorks.UniversalAI;
 
 namespace RSBotWorks.Plugins;
 
@@ -128,7 +129,7 @@ public class WeatherPlugin
         _placeUtility = new PlaceUtility(httpClientFactory);
     }
 
-    [KernelFunction("get_current_weather")]
+    [LocalFunction("get_current_weather")]
     [Description("Gets the current weather and sunrise/sunset for a given location")]
     public async Task<string> GetCurrentWeatherAsync(
         [Description("City name or ZIP code. When providing a City name, ISO 3166 country code can be appended e.g. 'Heidelberg,DE' to avoid ambiguity.")]
@@ -198,7 +199,7 @@ public class WeatherPlugin
         }
     }
 
-    [KernelFunction("weather_forecast")]
+    [LocalFunction("weather_forecast")]
     [Description("Get a 5 day weather forecast for a given location.")]
     public async Task<string> GetWeatherForecastAsync(
         [Description("City name or ZIP code. When providing a City name, ISO 3166 country code can be appended e.g. 'Heidelberg,DE' to avoid ambiguity.")]
