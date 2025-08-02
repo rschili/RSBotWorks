@@ -4,6 +4,14 @@ using OpenAI.Chat;
 
 namespace RSBotWorks.UniversalAI;
 
+public static class OpenAIModel
+{
+    public const string GPT4o = "gpt-4o";
+    public const string GPT41 = "gpt-4.1";
+    public const string O1 = "o1";
+    public const string O3Mini = "o3-mini";
+}
+
 internal class OpenAIChatClient : TypedChatClient<OpenAI.Chat.ChatClient>
 {
     public OpenAIChatClient(string modelName, OpenAI.Chat.ChatClient innerClient, ILogger? logger = null)
@@ -230,7 +238,7 @@ internal class OpenAIChatClient : TypedChatClient<OpenAI.Chat.ChatClient>
         var response = await ToolHub.CallAsync(functionCall.FunctionName, argsDict);
         instructions.Add(ResponseItem.CreateFunctionCallOutputItem(functionCall.CallId, response));
     }
-    
+
     public override async Task<string> DescribeImageAsync(string systemPrompt, byte[] imageBytes, string mimeType)
     {
         if (!RateLimiter.Leak())

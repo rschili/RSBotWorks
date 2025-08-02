@@ -6,6 +6,11 @@ using Microsoft.Extensions.Logging;
 
 namespace RSBotWorks.UniversalAI;
 
+internal class AnthropicChatParameters : NativeChatParameters
+{
+
+}
+
 internal class AnthropicChatClient : TypedChatClient<AnthropicClient>
 {
     public AnthropicChatClient(string modelName, AnthropicClient innerClient, ILogger? logger = null)
@@ -13,6 +18,18 @@ internal class AnthropicChatClient : TypedChatClient<AnthropicClient>
     {
     }
 
+
+    public override Task<string> CallAsync(string systemPrompt, IEnumerable<Message> inputs, NativeChatParameters parameters)
+    {
+        throw new NotImplementedException();
+    }
+
+    public override Task<NativeChatParameters> CompileParameters(ChatParameters parameters)
+    {
+        var nativeParameters = new AnthropicChatParameters() { OriginalParameters = parameters };
+        // TODO: convert tools
+        List<Tool> tools = [];
+    }
 
     public override async Task<string?> DoGenerateResponseAsync(string systemPrompt, IEnumerable<AIMessage> inputs, ResponseKind kind = ResponseKind.Default)
     {
@@ -34,8 +51,8 @@ internal class AnthropicChatClient : TypedChatClient<AnthropicClient>
             Stream = false,
             Temperature = 1.0m,
         };
-parameters.Tools
-        var firstResult = await InnerClient.Messages.GetClaudeMessageAsync(parameters);
+        parameters.Tools
+                var firstResult = await InnerClient.Messages.GetClaudeMessageAsync(parameters);
 
         if (kind == ResponseKind.StructuredJsonArray)
         {
@@ -71,32 +88,11 @@ parameters.Tools
         return responseText;
     }
 
-    public override async Task<string> DescribeImageAsync(string systemPrompt, byte[] imageBytes, string mimeType)
-    {
-        var request = new ClaudeMessageRequest()
-        {
-            Model = Model,
-            MaxTokens = 1000,
-            Temperature = 0.6,
-            System = new List<ClaudeSystemContent>
-            {
-                new ClaudeSystemContent { Text = systemPrompt }
-            },
-            Messages = [
-                ClaudeRequestMessage.Create(ClaudeRole.User, b => b.AddBase64Image(mimeType, imageBytes))
-            ],
-        };
-
-        var response = await SendRequestAsync(request);
-        var responseText = ExtractTextFromResponse(response);
-        return responseText ?? "Error: Unable to describe image.";
-    }
-
     private async Task<ClaudeResponse?> SendRequestAsync(ClaudeMessageRequest request)
     {
         using var client = CreateClientWithApiKey();
         var response = await client.PostAsJsonAsync(ENDPOINT_URL, request).ConfigureAwait(false);
-        
+
         if (response.Content == null)
         {
             Logger.LogWarning("Claude response content was null. Status code: {StatusCode}", response.StatusCode);
@@ -105,7 +101,7 @@ parameters.Tools
 
         var responseStream = await response.Content.ReadAsStreamAsync().ConfigureAwait(false);
         var claudeResponse = await JsonSerializer.DeserializeAsync<ClaudeResponse>(responseStream);
-        
+
         if (claudeResponse == null)
         {
             Logger.LogWarning("Claude response deserialization failed. Status code: {StatusCode}", response.StatusCode);

@@ -1,17 +1,10 @@
 using Anthropic.SDK;
 using Anthropic.SDK.Common;
+using Anthropic.SDK.Messaging;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace RSBotWorks.UniversalAI;
-
-public static class OpenAIModels
-{
-    public const string GPT4o = "gpt-4o";
-    public const string GPT41 = "gpt-4.1";
-    public const string O1 = "o1";
-    public const string O3Mini = "o3-mini";
-}
 
 public abstract class ChatClient : IDisposable
 {
@@ -30,7 +23,7 @@ public abstract class ChatClient : IDisposable
         OpenAI.Chat.ChatClient innerClient = new OpenAI.Chat.ChatClient(modelName, apiKey);
         return new OpenAIChatClient(modelName, innerClient, logger);
     }
-    
+
     public static ChatClient CreateAnthropicClient(string modelName, string apiKey, IHttpClientFactory? httpClientFactory = null, ILogger? logger = null)
     {
         var innerClient = new AnthropicClient(new APIAuthentication(apiKey), httpClientFactory != null ? httpClientFactory.CreateClient() : null);
@@ -38,7 +31,44 @@ public abstract class ChatClient : IDisposable
     }
 
     public abstract void Dispose();
+
+    public abstract Task<string> CallAsync(string systemPrompt, IEnumerable<Message> inputs, NativeChatParameters parameters);
+
+    public abstract Task<NativeChatParameters> CompileParameters(ChatParameters parameters);
 }
+
+public enum Role
+{
+    Assistant,
+    User
+}
+
+public record Message
+{
+    public required Role Role { get; set; }
+    public required List<MessageContent> Content { get; set; }
+
+    public static Message FromText(Role role, string text) => new Message() { Role = role, Content = [MessageContent.FromText(text)] };
+}
+
+public record MessageContent
+{
+    public static MessageContent FromImage(string mimeType, byte[] data) => new ImageContent() { MimeType = mimeType, Data = data };
+
+    public static MessageContent FromText(string text) => new TextContent() { Text = text };
+}
+
+public record ImageContent : MessageContent
+{
+    public required string MimeType { get; set; }
+    public required byte[] Data { get; set; }
+}
+
+public record TextContent : MessageContent
+{
+    public required string Text { get; set; }
+}
+
 
 internal abstract class TypedChatClient<TNativeClient> : ChatClient
 {
@@ -65,7 +95,12 @@ public enum ToolChoiceType
     None
 }
 
-public record ChatConfig
+public abstract class NativeChatParameters
+{
+    public ChatParameters OriginalParameters { get; init; }
+}
+
+public record ChatParameters
 {
     public int MaxTokens { get; set; }
 
@@ -81,5 +116,5 @@ public record ChatConfig
 
     public bool EnableWebSearch { get; set; } = false;
 
-    public Tool[]
+    public IEnumerable<LocalFunction>? AvailableLocalFunctions { get; set; }
 }
