@@ -2,7 +2,6 @@ using System.Collections.Immutable;
 using System.ComponentModel;
 using System.Reflection;
 using System.Text.Json;
-using System.Text.Json.Nodes;
 
 namespace RSBotWorks.UniversalAI;
 
@@ -13,13 +12,13 @@ public class LocalFunction
     public string Description { get; }
     public IReadOnlyList<LocalFunctionParameter> Parameters { get; }
 
-    private readonly Func<JsonNode, Task<string>> _handler;
+    private readonly Func<JsonDocument, Task<string>> _handler;
 
     public LocalFunction(
         string name,
         string description,
         IEnumerable<LocalFunctionParameter>? parameters,
-        Func<JsonNode, Task<string>> handler)
+        Func<JsonDocument, Task<string>> handler)
     {
         Name = name ?? throw new ArgumentNullException(nameof(name));
         Description = description ?? throw new ArgumentNullException(nameof(description));
@@ -27,7 +26,7 @@ public class LocalFunction
         _handler = handler ?? throw new ArgumentNullException(nameof(handler));
     }
 
-    public Task<string> ExecuteAsync(JsonNode parameters)
+    public Task<string> ExecuteAsync(JsonDocument parameters)
     {
         return _handler(parameters);
     }
@@ -79,21 +78,16 @@ public class LocalFunction
         }
 
         // Create the handler that invokes the method
-        Func<JsonNode, Task<string>> handler = async (jsonNode) =>
+        Func<JsonDocument, Task<string>> handler = async (args) =>
         {
             try
             {
-                // Ensure the JsonNode is an object
-                if (jsonNode is not JsonObject jsonObject)
-                {
-                    throw new ArgumentException("Parameters must be provided as a JSON object");
-                }
                 // Convert JSON arguments to method parameter types
                 object?[] methodArgs = new object?[methodParams.Length];
                 for (int i = 0; i < methodParams.Length; i++)
                 {
                     var param = methodParams[i];
-                    if (param.Name != null && jsonObject.TryGetPropertyValue(param.Name, out JsonNode? value))
+                    if (args.RootElement.TryGetProperty(param.Name!, out JsonElement value))
                     {
                         methodArgs[i] = JsonSerializer.Deserialize(value, param.ParameterType);
                     }

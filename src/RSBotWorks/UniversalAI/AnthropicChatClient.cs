@@ -114,7 +114,9 @@ internal class AnthropicChatClient : TypedChatClient<AnthropicClient>
                     continue;
                 }
 
-                var toolResponse = await nativeTool.ExecuteAsync(toolCall.Arguments);
+                // Convert JsonNode to JsonDocument for consistency
+                using var jsonDoc = JsonDocument.Parse(toolCall.Arguments.ToJsonString());
+                var toolResponse = await nativeTool.ExecuteAsync(jsonDoc);
                 message.Messages.Add(new Anthropic.SDK.Messaging.Message(toolCall, toolResponse));
             }
         }
