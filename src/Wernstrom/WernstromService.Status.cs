@@ -3,13 +3,10 @@ using System.Text.Json;
 using Anthropic.SDK.Constants;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using Microsoft.SemanticKernel;
-using Microsoft.SemanticKernel.ChatCompletion;
-using Microsoft.SemanticKernel.Connectors.OpenAI;
 
 namespace Wernstrom;
 
-public partial class WernstromService : BackgroundService
+public partial class WernstromService
 {
     private ConcurrentQueue<string> StatusMessages = new();
     private DateTimeOffset LastStatusUpdate = DateTimeOffset.MinValue;
@@ -49,7 +46,7 @@ public partial class WernstromService : BackgroundService
 
         var activity = StatusMessages.TryDequeue(out var statusMessage) ? statusMessage : null;
         CurrentActivity = activity;
-        await Client.SetCustomStatusAsync(activity).ConfigureAwait(false);
+        await DiscordClient.SetCustomStatusAsync(activity).ConfigureAwait(false);
     }
 
     internal async Task<List<string>> CreateNewStatusMessages()
@@ -62,7 +59,7 @@ public partial class WernstromService : BackgroundService
 
         try
         {
-            var response = await ChatService.GetChatMessageContentAsync(history, StatusSettings, Kernel);
+            var response = await ChatClient.GetChatMessageContentAsync(history, StatusSettings, Kernel);
             if (string.IsNullOrEmpty(response.Content))
             {
                 Logger.LogWarning($"Got an empty response for status messages");

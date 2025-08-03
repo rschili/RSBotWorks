@@ -5,7 +5,7 @@ using Microsoft.Extensions.Logging;
 
 namespace Wernstrom;
 
-public partial class WernstromService : BackgroundService
+public partial class WernstromService
 {
 
     private List<string> RollCommandNames = new()
@@ -18,7 +18,7 @@ public partial class WernstromService : BackgroundService
 
     private async Task RegisterCommandsAsync()
     {
-        if (_client == null)
+        if (_discordClient == null)
             return;
 
         foreach (var commandName in RollCommandNames)
@@ -28,7 +28,7 @@ public partial class WernstromService : BackgroundService
                 .WithName(commandName)
                 .WithDescription("Rolls a random number.")
                 .AddOption("range", ApplicationCommandOptionType.String, "One or two numbers separated by a space or slash.", isRequired: false);
-            await _client.CreateGlobalApplicationCommandAsync(commandBuilder.Build()).ConfigureAwait(false);
+            await _discordClient.CreateGlobalApplicationCommandAsync(commandBuilder.Build()).ConfigureAwait(false);
 
             Logger.LogInformation("Created slash command: {CommandName}", commandName);
         }

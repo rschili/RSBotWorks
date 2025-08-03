@@ -6,11 +6,11 @@ using Microsoft.Extensions.Hosting;
 using RSBotWorks;
 using Microsoft.Extensions.AI;
 using Anthropic.SDK;
-using Microsoft.SemanticKernel;
-using Microsoft.SemanticKernel.ChatCompletion;
 using RSBotWorks.Plugins;
 using Microsoft.Extensions.Options;
 using System.Reflection.Metadata.Ecma335;
+using RSBotWorks.UniversalAI;
+using Anthropic.SDK.Constants;
 
 Console.WriteLine($"Current user: {Environment.UserName}");
 Console.WriteLine("Loading config...");
@@ -25,25 +25,23 @@ if (!Directory.Exists(dbDirectory))
     Directory.CreateDirectory(dbDirectory);
 }
 
-var builder = Host.CreateApplicationBuilder();
-var services = builder.Services;
-builder.Logging.SetupLogging(config);
+var services = new ServiceCollection();
+services.AddLogging(logBuilder => logBuilder.SetupLogging(config)).;
 services.AddSingleton<IConfig>(config)
         .AddSingleton<LoggingHttpHandler>()
         .AddHttpClient(Options.DefaultName).AddHttpMessageHandler<LoggingHttpHandler>(); // comment the second part to disable logging
-services.AddKernel().SetupKernel(config);
+using var provider = services.BuildServiceProvider();
 
-var wernstromConfig = new WernstromServiceConfig()
-{
-    DiscordToken = config.DiscordToken,
-};
-services.AddSingleton(wernstromConfig);
-services.AddHostedService<WernstromService>();
-using var host = builder.Build();
+var httpClientFactory = provider.GetRequiredService<IHttpClientFactory>();
+
+using var chatClient = ChatClient.CreateAnthropicClient(AnthropicModels.Claude4Sonnet, config.ClaudeApiKey, httpClientFactory, provider.GetRequiredService<ILogger<ChatClient>>());
+
+using WernstromService wernstrom = new(provider.GetRequiredService<ILogger<WernstromService>>(),
+    httpClientFactory, config.DiscordToken, chatClient, null);
 
 try
 {
-    await host.RunAsync();
+    await wernstrom.ExecuteAsync(CancellationToken.None);
 }
 catch (Exception ex)
 {

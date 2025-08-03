@@ -5,16 +5,13 @@ using Discord;
 using Discord.WebSocket;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using Microsoft.SemanticKernel;
-using Microsoft.SemanticKernel.ChatCompletion;
-using Microsoft.SemanticKernel.Connectors.OpenAI;
 using RSBotWorks;
 using RSFlowControl;
 
 namespace Wernstrom;
 
 
-public partial class WernstromService : BackgroundService
+public partial class WernstromService
 {
     private ProbabilityRamp EmojiProbabilityRamp { get; init; } = new(0, 0.4, TimeSpan.FromMinutes(40));
 
@@ -40,7 +37,7 @@ public partial class WernstromService : BackgroundService
 
     private Dictionary<string, IEmote> BuildEmotesDictionary()
     {
-        var emotes = Client.Guilds.SelectMany(g => g.Emotes)
+        var emotes = DiscordClient.Guilds.SelectMany(g => g.Emotes)
             .Where(e => e.IsAvailable == true)
             .GroupBy(e => e.Name, StringComparer.OrdinalIgnoreCase);
 
@@ -183,7 +180,7 @@ public partial class WernstromService : BackgroundService
 
         try
         {
-            var reaction = await ChatService.GetChatMessageContentAsync(history, Settings, Kernel);
+            var reaction = await ChatClient.GetChatMessageContentAsync(history, Settings, Kernel);
             if (string.IsNullOrEmpty(reaction.Content))
             {
                 Logger.LogWarning("AI did not return a reaction for the message: {Message}", arg.Content.Substring(0, Math.Min(arg.Content.Length, 100)));

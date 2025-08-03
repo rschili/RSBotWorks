@@ -14,7 +14,7 @@ public static class OpenAIModel
     public const string O3Mini = "o3-mini";
 }
 
-internal class OpenAIChatParameters : CompiledChatParameters
+internal class OpenAIChatParameters : PreparedChatParameters
 {
     public required ChatCompletionOptions Options { get; internal set; }
 }
@@ -26,7 +26,7 @@ internal class OpenAIChatClient : TypedChatClient<OpenAI.Chat.ChatClient>
     {
     }
 
-    public override async Task<string> CallAsync(string systemPrompt, IEnumerable<Message> inputs, CompiledChatParameters parameters)
+    public override async Task<string> CallAsync(string systemPrompt, IList<Message> inputs, PreparedChatParameters parameters)
     {
         if (parameters is not OpenAIChatParameters openAIParameters)
         {
@@ -61,7 +61,7 @@ internal class OpenAIChatClient : TypedChatClient<OpenAI.Chat.ChatClient>
         }
     }
 
-    public override Task<CompiledChatParameters> CompileParametersAsync(ChatParameters parameters)
+    public override PreparedChatParameters PrepareParameters(ChatParameters parameters)
     {
         ChatCompletionOptions options = new()
         {
@@ -83,11 +83,11 @@ internal class OpenAIChatClient : TypedChatClient<OpenAI.Chat.ChatClient>
                 }
             }
         
-        return Task.FromResult<CompiledChatParameters>(new OpenAIChatParameters
+        return new OpenAIChatParameters
         {
             Options = options,
             OriginalParameters = parameters
-        });
+        };
     }
 
     private static List<ChatTool> GenerateOpenAITools(IEnumerable<LocalFunction> functions)

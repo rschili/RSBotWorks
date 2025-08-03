@@ -4,44 +4,35 @@ using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using Anthropic.SDK.Constants;
 using Discord;
 using Discord.WebSocket;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using Microsoft.SemanticKernel;
-using Microsoft.SemanticKernel.ChatCompletion;
-using Microsoft.SemanticKernel.Connectors.OpenAI;
-using OpenAI.Chat;
 using RSBotWorks;
+using RSBotWorks.UniversalAI;
 
 namespace Wernstrom;
 
-public class WernstromServiceConfig
-{
-    public required string DiscordToken { get; set; }
-}
-
-public partial class WernstromService : BackgroundService
+public partial class WernstromService : IDisposable
 {
     public ILogger Logger { get; init; }
-    private WernstromServiceConfig Config { get; init; }
 
-    private IChatCompletionService ChatService { get; init; }
+    public string DiscordToken { get; init; }
 
-    private Kernel? Kernel { get; init; }
+    private ChatClient ChatClient { get; init; }
 
     public bool IsRunning { get; private set; }
 
-    private DiscordSocketClient? _client;
+    private DiscordSocketClient? _discordClient;
 
     private IHttpClientFactory HttpClientFactory { get; init; }
 
-    public DiscordSocketClient Client => _client ?? throw new InvalidOperationException("Discord client is not initialized.");
+    public DiscordSocketClient DiscordClient => _discordClient ?? throw new InvalidOperationException("Discord client is not initialized.");
 
     private ChannelUserCache<ulong> Cache { get; set; } = new();
 
     public ImmutableArray<JoinedTextChannel<ulong>> TextChannels => Cache.Channels;
+
+    public List<LocalFunction>? LocalFunctions { get; private set; }
 
     internal const string GENERIC_INSTRUCTION = $"""
         Simuliere Professor Ogden Wernstrom in einem Discord Chat.
@@ -62,22 +53,15 @@ public partial class WernstromService : BackgroundService
         Generiere eine Antwort auf die letzte erhaltene Nachricht.
         """;
 
-    internal readonly OpenAIPromptExecutionSettings Settings = new() // We can use the OpenAI Settings for Claude, they are compatible
-    {
-        ModelId = AnthropicModels.Claude4Sonnet,
-        FunctionChoiceBehavior = FunctionChoiceBehavior.Auto(),
-        MaxTokens = 1000,
-        Temperature = 0.6,
-    };
+    internal PreparedChatParameters DefaultParameters { get; init; }
 
-    public WernstromService(ILogger<WernstromService> logger, IHttpClientFactory httpClientFactory, WernstromServiceConfig config, IChatCompletionService chatService, Kernel? kernel)
+    public WernstromService(ILogger<WernstromService> logger, IHttpClientFactory httpClientFactory, string discordToken, ChatClient chatClient, List<LocalFunction>? localFunctions)
     {
         Logger = logger ?? throw new ArgumentNullException(nameof(logger));
-        Config = config ?? throw new ArgumentNullException(nameof(config));
-        ChatService = chatService ?? throw new ArgumentNullException(nameof(chatService));
-        Kernel = kernel;
+        DiscordToken = discordToken ?? throw new ArgumentNullException(nameof(discordToken));
+        ChatClient = chatClient ?? throw new ArgumentNullException(nameof(chatClient));
         HttpClientFactory = httpClientFactory ?? throw new ArgumentNullException(nameof(httpClientFactory));
-
+        LocalFunctions = localFunctions;
         Emotes = new(() => BuildEmotesDictionary(), LazyThreadSafetyMode.ExecutionAndPublication);
 
         EmojiJsonList = new(() =>
@@ -85,9 +69,20 @@ public partial class WernstromService : BackgroundService
             var emotes = Emotes.Value.Select(e => e.Key).OrderBy(name => name, StringComparer.OrdinalIgnoreCase).ToList();
             return JsonSerializer.Serialize(emotes);
         }, LazyThreadSafetyMode.ExecutionAndPublication);
+
+        var defaultChatParameters = new ChatParameters()
+        {
+            EnableWebSearch = true,
+            MaxTokens = 1000,
+            Temperature = 0.7m,
+            ToolChoiceType = ToolChoiceType.Auto,
+            AvailableLocalFunctions = LocalFunctions,
+        };
+        // needs to be async so we prepare on first use
+        DefaultParameters = ChatClient.PrepareParameters(defaultChatParameters);
     }
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    public async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         var intents = GatewayIntents.AllUnprivileged | GatewayIntents.MessageContent | GatewayIntents.GuildMembers;
         intents &= ~GatewayIntents.GuildInvites;
@@ -99,12 +94,12 @@ public partial class WernstromService : BackgroundService
             GatewayIntents = intents
         };
         Logger.LogWarning("Connecting to Discord...");
-        _client = new DiscordSocketClient(discordConfig);
+        _discordClient = new DiscordSocketClient(discordConfig);
 
-        _client.Log += LogAsync;
-        _client.Ready += ReadyAsync;
-        await _client.LoginAsync(TokenType.Bot, Config.DiscordToken);
-        await _client.StartAsync();
+        _discordClient.Log += LogAsync;
+        _discordClient.Ready += ReadyAsync;
+        await _discordClient.LoginAsync(TokenType.Bot, DiscordToken);
+        await _discordClient.StartAsync();
         try
         {
             await Task.Delay(Timeout.Infinite, stoppingToken);
@@ -119,24 +114,24 @@ public partial class WernstromService : BackgroundService
         }
         IsRunning = false;
         Logger.LogInformation("Logging out...");
-        await _client.LogoutAsync();
+        await _discordClient.LogoutAsync();
         Logger.LogInformation("Disposing client...");
-        await _client.DisposeAsync();
-        _client = null;
+        await _discordClient.DisposeAsync();
+        _discordClient = null;
     }
 
     private async Task ReadyAsync()
     {
-        if (_client == null)
+        if (_discordClient == null)
             return;
 
-        Logger.LogWarning($"Discord User {_client.CurrentUser} is connected successfully!");
+        Logger.LogWarning($"Discord User {_discordClient.CurrentUser} is connected successfully!");
         await InitializeCache();
 
         if (!IsRunning)
         {
-            _client.MessageReceived += MessageReceived;
-            _client.SlashCommandExecuted += SlashCommandExecuted;
+            _discordClient.MessageReceived += MessageReceived;
+            _discordClient.SlashCommandExecuted += SlashCommandExecuted;
         }
 
         try
@@ -216,7 +211,7 @@ public partial class WernstromService : BackgroundService
         if (sanitizedMessage.Length > 1000)
             sanitizedMessage = sanitizedMessage[..1000];
 
-        var isFromSelf = arg.Author.Id == Client.CurrentUser.Id;
+        var isFromSelf = arg.Author.Id == DiscordClient.CurrentUser.Id;
         //await MessageCache.AddDiscordMessageAsync(arg.Id, arg.Timestamp, arg.Author.Id, cachedUser.SanitizedName, sanitizedMessage, isFromSelf, arg.Channel.Id).ConfigureAwait(false);
 
         // The bot should never respond to itself.
@@ -245,13 +240,12 @@ public partial class WernstromService : BackgroundService
         var liveHistory = await arg.Channel.GetMessagesAsync(arg, Direction.Before, 10, CacheMode.AllowDownload).FlattenAsync().ConfigureAwait(false);
         stopwatch.Stop();
         Logger.LogDebug("It took {Seconds:F3}s to load live history", stopwatch.Elapsed.TotalSeconds);
-        ChatHistory history = [];
+        List<Message> history = [];
         var developerMessage = CHAT_INSTRUCTION;
         if (!string.IsNullOrEmpty(CurrentActivity))
         {
             developerMessage += $"\nDeine aktuelle Aktivität: {CurrentActivity}";
         }
-        history.AddDeveloperMessage(developerMessage);
 
         stopwatch.Restart();
         foreach (var message in liveHistory)
@@ -265,17 +259,17 @@ public partial class WernstromService : BackgroundService
         try
         {
             stopwatch.Restart();
-            var response = await ChatService.GetChatMessageContentAsync(history, Settings, Kernel);
+            var response = await ChatClient.CallAsync(developerMessage, history, DefaultParameters);
             stopwatch.Stop();
             Logger.LogDebug("It took {Seconds:F3}s to get response from AI", stopwatch.Elapsed.TotalSeconds);
 
-            if (string.IsNullOrEmpty(response.Content))
+            if (string.IsNullOrEmpty(response))
             {
                 Logger.LogWarning($"Got an empty response to: {arg.Content.Substring(0, Math.Min(arg.Content.Length, 100))}");
                 return; // may be rate limited 
             }
 
-            var text = RestoreDiscordTags(response.Content, cachedChannel, out var hasMentions);
+            var text = RestoreDiscordTags(response, cachedChannel, out var hasMentions);
             await arg.Channel.SendMessageAsync(text, messageReference: null /*new MessageReference(arg.Id)*/).ConfigureAwait(false);
         }
         catch (Exception ex)
@@ -284,7 +278,7 @@ public partial class WernstromService : BackgroundService
         }
     }
 
-    private async Task AddMessageToHistory(ChatHistory history, IMessage message, JoinedTextChannel<ulong> cachedChannel)
+    private async Task AddMessageToHistory(List<Message> history, IMessage message, JoinedTextChannel<ulong> cachedChannel)
     {
         var user = cachedChannel.GetUser(message.Author.Id);
         if (user == null)
@@ -293,27 +287,27 @@ public partial class WernstromService : BackgroundService
             cachedChannel.Users = cachedChannel.Users.Add(user);
         }
 
-        bool self = message.Author.Id == Client.CurrentUser.Id;
+        bool self = message.Author.Id == DiscordClient.CurrentUser.Id;
         if (self)
         {
-            history.AddAssistantMessage(ReplaceDiscordTags(message.Tags, message.Content, cachedChannel));
+            history.Add(Message.FromText(Role.Assistant, ReplaceDiscordTags(message.Tags, message.Content, cachedChannel)));
         }
         else
         {
             var text = ReplaceDiscordTags(message.Tags, message.Content, cachedChannel);
             var prefix = $"[{message.Timestamp.ToRelativeToNowLabel()}] [[{user.SanitizedName}]]: ";
-            ChatMessageContentItemCollection messages = [];
-            messages.Add(new TextContent($"{prefix}{text}"));
+            List<MessageContent> contents = [];
+            contents.Add(MessageContent.FromText($"{prefix}{text}"));
 
             var attachments = await ExtractImageAttachments(message);
             if (attachments != null && attachments.Count > 0)
             {
                 foreach (var attachment in attachments)
                 {
-                    messages.Add(new ImageContent(attachment.Data.AsMemory(), attachment.MimeType));
+                    contents.Add(MessageContent.FromImage(attachment.MimeType, attachment.Data));
                 }
             }
-            history.AddUserMessage(messages);
+            history.Add(new Message() { Role = Role.User, Content = contents });
         }
     }
 
@@ -323,11 +317,11 @@ public partial class WernstromService : BackgroundService
             return false;
 
         //mentions
-        if (arg.Tags.Any((tag) => tag.Type == TagType.UserMention && (tag.Value as IUser)?.Id == Client.CurrentUser.Id))
+        if (arg.Tags.Any((tag) => tag.Type == TagType.UserMention && (tag.Value as IUser)?.Id == DiscordClient.CurrentUser.Id))
             return true;
 
         if (arg.Reference != null && arg is SocketUserMessage userMessage &&
-            userMessage.ReferencedMessage.Author.Id == Client.CurrentUser.Id)
+            userMessage.ReferencedMessage.Author.Id == DiscordClient.CurrentUser.Id)
             return true;
 
         return false;
@@ -397,17 +391,16 @@ public partial class WernstromService : BackgroundService
         return guildUser?.Nickname ?? user?.GlobalName ?? user?.Username ?? "";
     }
 
-    public override void Dispose()
+    public void Dispose()
     {
-        _client?.Dispose();
-        _client = null;
-        base.Dispose();
+        _discordClient?.Dispose();
+        _discordClient = null;
     }
 
     private async Task InitializeCache()
     {
         ChannelUserCache<ulong> cache = new();
-        foreach (var server in Client.Guilds)
+        foreach (var server in DiscordClient.Guilds)
         {
             await server.DownloadUsersAsync().ConfigureAwait(false);
             foreach (var channel in server.Channels)

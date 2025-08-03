@@ -10,7 +10,7 @@ using Microsoft.Extensions.Logging;
 
 namespace RSBotWorks.UniversalAI;
 
-internal class AnthropicChatParameters : CompiledChatParameters
+internal class AnthropicChatParameters : PreparedChatParameters
 {
     public List<Anthropic.SDK.Common.Tool>? Tools { get; internal set; }
 }
@@ -23,7 +23,7 @@ internal class AnthropicChatClient : TypedChatClient<AnthropicClient>
     }
 
 
-    public override async Task<string> CallAsync(string systemPrompt, IEnumerable<Message> inputs, CompiledChatParameters parameters)
+    public override async Task<string> CallAsync(string systemPrompt, IList<Message> inputs, PreparedChatParameters parameters)
     {
         if (parameters is not AnthropicChatParameters anthropicParameters)
         {
@@ -159,7 +159,7 @@ internal class AnthropicChatClient : TypedChatClient<AnthropicClient>
         return result;
     }
 
-    public override Task<CompiledChatParameters> CompileParametersAsync(ChatParameters parameters)
+    public override PreparedChatParameters PrepareParameters(ChatParameters parameters)
     {
         var compiledParameters = new AnthropicChatParameters() { OriginalParameters = parameters };
         // TODO: convert tools
@@ -208,6 +208,6 @@ internal class AnthropicChatClient : TypedChatClient<AnthropicClient>
                 compiledParameters.Tools = tools;
             }
         
-        return Task.FromResult<CompiledChatParameters>(compiledParameters);
+        return compiledParameters;
     }
 }

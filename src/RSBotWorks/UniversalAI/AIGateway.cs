@@ -32,9 +32,9 @@ public abstract class ChatClient : IDisposable
 
     public abstract void Dispose();
 
-    public abstract Task<string> CallAsync(string systemPrompt, IEnumerable<Message> inputs, CompiledChatParameters parameters);
+    public abstract Task<string> CallAsync(string systemPrompt, IList<Message> inputs, PreparedChatParameters parameters);
 
-    public abstract Task<CompiledChatParameters> CompileParametersAsync(ChatParameters parameters);
+    public abstract PreparedChatParameters PrepareParameters(ChatParameters parameters);
 }
 
 public enum Role
@@ -95,7 +95,7 @@ public enum ToolChoiceType
     None
 }
 
-public abstract class CompiledChatParameters
+public abstract class PreparedChatParameters
 {
     public required ChatParameters OriginalParameters { get; init; }
 }
