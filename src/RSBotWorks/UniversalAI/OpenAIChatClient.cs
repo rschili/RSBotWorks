@@ -1,4 +1,5 @@
 
+using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using OpenAI.Chat;
 
@@ -12,6 +13,11 @@ public static class OpenAIModel
     public const string O3Mini = "o3-mini";
 }
 
+internal class OpenAIChatParameters : CompiledChatParameters
+{
+    public required ChatCompletionOptions Options { get; internal set; }
+}
+
 internal class OpenAIChatClient : TypedChatClient<OpenAI.Chat.ChatClient>
 {
     public OpenAIChatClient(string modelName, OpenAI.Chat.ChatClient innerClient, ILogger? logger = null)
@@ -19,22 +25,54 @@ internal class OpenAIChatClient : TypedChatClient<OpenAI.Chat.ChatClient>
     {
     }
 
-
-
-    private static List<ResponseTool> GenerateOpenAITools(ImmutableArray<Tool> tools, bool enableWebSearch)
+    public override async Task<string> CallAsync(string systemPrompt, IEnumerable<Message> inputs, CompiledChatParameters parameters)
     {
-        var oaiTools = new List<ResponseTool>();
 
-        foreach (var tool in tools)
+    }
+
+    public override Task<CompiledChatParameters> CompileParametersAsync(ChatParameters parameters)
+    {
+        ChatCompletionOptions options = new()
+        {
+            MaxOutputTokenCount = 1000,
+            StoredOutputEnabled = false,
+            ResponseFormat = ChatResponseFormat.CreateTextFormat(),
+            ToolChoice = parameters.ToolChoiceType == ToolChoiceType.Auto ? ChatToolChoice.CreateAutoChoice() : ChatToolChoice.CreateNoneChoice(),
+        };
+        if (parameters.EnableWebSearch)
+        {
+            options.WebSearchOptions = new();
+        }
+
+        if (parameters.AvailableLocalFunctions != null && parameters.AvailableLocalFunctions.Count > 0)
+            {
+                foreach (var tool in GenerateOpenAITools(parameters.AvailableLocalFunctions))
+                {
+                    options.Tools.Add(tool);
+                }
+            }
+        
+        return Task.FromResult<CompiledChatParameters>(new OpenAIChatParameters
+        {
+            Options = options,
+            OriginalParameters = parameters
+        });
+    }
+
+    private static List<ChatTool> GenerateOpenAITools(IEnumerable<LocalFunction> functions)
+    {
+        var oaiTools = new List<ChatTool>();
+
+        foreach (var localFunction in functions)
         {
             var properties = new Dictionary<string, object>();
             var required = new List<string>();
 
-            foreach (var parameter in tool.Parameters)
+            foreach (var parameter in localFunction.Parameters)
             {
                 properties[parameter.Name] = new
                 {
-                    type = parameter.Type.ToLowerInvariant(),
+                    type = parameter.Type.ToString().ToLowerInvariant(),
                     description = parameter.Description
                 };
 
@@ -56,31 +94,19 @@ internal class OpenAIChatClient : TypedChatClient<OpenAI.Chat.ChatClient>
                 WriteIndented = false
             }) : "{}";
 
-            var responseTool = ResponseTool.CreateFunctionTool(
-                functionName: tool.Name,
-                functionDescription: tool.Description,
+            var responseTool = ChatTool.CreateFunctionTool(
+                functionName: localFunction.Name,
+                functionDescription: localFunction.Description,
                 functionParameters: BinaryData.FromString(schemaJson)
             );
 
             oaiTools.Add(responseTool);
         }
 
-        if (enableWebSearch)
-            oaiTools.Add(ResponseTool.CreateWebSearchTool()); // Add web search tool by default
         return oaiTools;
     }
 
-    public static readonly ResponseCreationOptions DefaultOptions = new()
-    {
-        MaxOutputTokenCount = 1000,
-        StoredOutputEnabled = false,
-        TextOptions = new ResponseTextOptions
-        {
-            TextFormat = ResponseTextFormat.CreateTextFormat()
-        },
-        ToolChoice = ResponseToolChoice.CreateAutoChoice(),
-    };
-
+/*
     public static readonly ResponseCreationOptions StructuredJsonArrayOptions = new()
     {
         MaxOutputTokenCount = 1000,
@@ -105,24 +131,7 @@ internal class OpenAIChatClient : TypedChatClient<OpenAI.Chat.ChatClient>
             """u8.ToArray()), null, true)
         },
         ToolChoice = ResponseToolChoice.CreateAutoChoice(),
-    };
-
-    public static readonly ResponseCreationOptions PlainTextWithNoToolsOptions = new()
-    {
-        MaxOutputTokenCount = 50,
-        StoredOutputEnabled = false,
-        TextOptions = new ResponseTextOptions
-        {
-            TextFormat = ResponseTextFormat.CreateTextFormat()
-        }
-    };
-
-    public static readonly ChatCompletionOptions ChatImageGenerationOptions = new()
-    {
-        MaxOutputTokenCount = 1000,
-        StoredOutputEnabled = false,
-        ResponseFormat = ChatResponseFormat.CreateTextFormat(),
-    };
+    };*/
 
     public override async Task<string?> DoGenerateResponseAsync(string systemPrompt, IEnumerable<AIMessage> inputs, ResponseKind kind = ResponseKind.Default)
     {
@@ -238,36 +247,5 @@ internal class OpenAIChatClient : TypedChatClient<OpenAI.Chat.ChatClient>
         var response = await ToolHub.CallAsync(functionCall.FunctionName, argsDict);
         instructions.Add(ResponseItem.CreateFunctionCallOutputItem(functionCall.CallId, response));
     }
-
-    public override async Task<string> DescribeImageAsync(string systemPrompt, byte[] imageBytes, string mimeType)
-    {
-        if (!RateLimiter.Leak())
-            return "Rate limit exceeded. Please try again later.";
-
-        var imageData = BinaryData.FromBytes(imageBytes);
-        var instructions = new UserChatMessage(
-            [
-                ChatMessageContentPart.CreateTextPart(systemPrompt),
-                ChatMessageContentPart.CreateImagePart(imageData, mimeType),
-            ]);
-
-        try
-        {
-            var result = await ChatClient.CompleteChatAsync([instructions], ChatImageGenerationOptions).ConfigureAwait(false);
-            var text = result.Value.Content[0].Text;
-            if (string.IsNullOrWhiteSpace(text))
-            {
-                Logger.LogWarning("OpenAI image description returned empty response.");
-                return "Keine Beschreibung für das Bild generiert.";
-            }
-            return text;
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "An error occurred during the OpenAI image description call.");
-            return $"Fehler bei der Kommunikation mit OpenAI: {ex.Message}";
-        }
-    }
-
 
 }

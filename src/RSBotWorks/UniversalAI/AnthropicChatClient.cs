@@ -6,8 +6,6 @@ using System.Text.Json.Serialization;
 using Anthropic.SDK;
 using Anthropic.SDK.Common;
 using Anthropic.SDK.Messaging;
-using Discord;
-using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 
 namespace RSBotWorks.UniversalAI;
