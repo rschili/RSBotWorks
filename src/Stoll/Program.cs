@@ -2,8 +2,9 @@ using System.Globalization;
 using Stoll;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using RSBotWorks.Tools;
 using RSBotWorks;
+using RSBotWorks.UniversalAI;
+using RSBotWorks.Plugins;
 
 Console.WriteLine($"Current user: {Environment.UserName}");
 Console.WriteLine("Loading config...");
@@ -19,61 +20,36 @@ if (!Directory.Exists(dbDirectory))
 }
 
 var services = new ServiceCollection();
-services.ConfigureLogging(config)
-        .AddHttpClient();
+services.AddLogging(logBuilder => logBuilder.SetupLogging(config));
+services.AddHttpClient();
 using var serviceProvider = services.BuildServiceProvider();
 
 var httpClientFactory = serviceProvider.GetRequiredService<IHttpClientFactory>();
-var loggerFactory = serviceProvider.GetRequiredService<ILoggerFactory>();
 
-var weatherProvider = new WeatherToolProvider(
-    httpClientFactory,
-    loggerFactory.CreateLogger<WeatherToolProvider>(),
-    config.OpenWeatherMapApiKey);
+using var chatClient = ChatClient.CreateOpenAIClient(OpenAIModel.GPT41, config.OpenAiApiKey, serviceProvider.GetRequiredService<ILogger<ChatClient>>());
 
-var newsProvider = new NewsToolProvider(
-    httpClientFactory,
-    loggerFactory.CreateLogger<NewsToolProvider>());
+List<LocalFunction> functions = [];
+HomeAssistantPlugin haPlugin = new(httpClientFactory, new HomeAssistantPluginConfig() { HomeAssistantToken = config.HomeAssistantToken, HomeAssistantUrl = config.HomeAssistantUrl },
+    serviceProvider.GetRequiredService<ILogger<HomeAssistantPlugin>>());
+functions.Add(LocalFunction.FromMethod(haPlugin, nameof(HomeAssistantPlugin.GetCarStatusAsync)));
 
-var homeAssistantProvider = new HomeAssistantToolProvider(
-    httpClientFactory,
-    config.HomeAssistantUrl,
-    config.HomeAssistantToken,
-    loggerFactory.CreateLogger<HomeAssistantToolProvider>());
+WeatherPlugin weatherPlugin = new(httpClientFactory, serviceProvider.GetRequiredService<ILogger<WeatherPlugin>>(),
+    new WeahterPluginConfig() { ApiKey = config.OpenWeatherMapApiKey });
+functions.AddRange(LocalFunction.FromObject(weatherPlugin));
 
-var toolHub = new ToolHub(loggerFactory.CreateLogger<ToolHub>());
-toolHub.RegisterToolProvider(weatherProvider);
-toolHub.RegisterToolProvider(newsProvider);
-toolHub.RegisterToolProvider(homeAssistantProvider);
-toolHub.EnableWebSearch = true; // Enable web search by default
+NewsPlugin newsPlugin = new(httpClientFactory, serviceProvider.GetRequiredService<ILogger<NewsPlugin>>());
+functions.AddRange(LocalFunction.FromObject(newsPlugin));
 
-var credentials = new AIServiceCredentials(
-    OpenAIKey: config.OpenAiApiKey,
-    ClaudeKey: config.ClaudeApiKey,
-    MoonshotKey: null // Moonshot AI key is optional
-);
-
-var openAIService = AIServiceFactory.CreateService(
-    AIModel.ClaudeSonnet4,
-    credentials,
-    toolHub,
-    httpClientFactory,
-    loggerFactory.CreateLogger<OpenAIService>());
+StollService stoll = new(serviceProvider.GetRequiredService<ILogger<StollService>>(),
+    config.MatrixUserId, config.MatrixPassword, httpClientFactory, chatClient, functions);
 
 try
 {
-    var messageCache = await SqliteMessageCache.CreateAsync(config.SqliteDbPath).ConfigureAwait(false);
-    var runner = new Runner(
-        loggerFactory.CreateLogger<Runner>(),
-        config,
-        httpClientFactory,
-        messageCache,
-        openAIService);
-    await runner.ExecuteAsync(CancellationToken.None).ConfigureAwait(false);
+    await stoll.ExecuteAsync(CancellationToken.None).ConfigureAwait(false);
 }
 catch (Exception ex)
 {
-    loggerFactory.CreateLogger<Program>().LogCritical(ex, "Application failed to start or run");
+    Console.WriteLine("Critical error during execution. The application will terminate. " + ex.Message);
     throw;
 }
 
@@ -86,28 +62,25 @@ static void SetGermanCulture()
     Console.WriteLine($"Current culture: {CultureInfo.CurrentCulture.Name}");
 }
 
-public static class ServiceExtensions
+public static class BuilderExtensions
 {
-    public static IServiceCollection ConfigureLogging(this IServiceCollection services, Config config)
+    public static ILoggingBuilder SetupLogging(this ILoggingBuilder builder, Config config)
     {
-        services.AddLogging(loggingBuilder =>
+        builder.ClearProviders();
+        builder.AddSimpleConsole(options =>
         {
-            loggingBuilder.ClearProviders();
-            loggingBuilder.AddSimpleConsole(options =>
-            {
-                options.IncludeScopes = true;
-                options.SingleLine = false;
-                options.TimestampFormat = "hh:mm:ss ";
-                options.ColorBehavior = Microsoft.Extensions.Logging.Console.LoggerColorBehavior.Enabled;
-            });
-            loggingBuilder.AddFilter("RSBotWorks.OpenAIService", LogLevel.Information);
-            loggingBuilder.AddFilter("RSBotWorks.Tools.WeatherToolProvider", LogLevel.Information);
-            loggingBuilder.AddFilter("RSBotWorks.Tools.NewsToolProvider", LogLevel.Information);
-            loggingBuilder.AddFilter("RSBotWorks.Tools.HomeAssistantToolProvider", LogLevel.Information);
-            loggingBuilder.SetMinimumLevel(LogLevel.Warning);
-            loggingBuilder.AddSeq(config.SeqUrl, config.SeqApiKey);
+            options.IncludeScopes = true;
+            options.SingleLine = false;
+            options.TimestampFormat = "hh:mm:ss ";
+            options.ColorBehavior = Microsoft.Extensions.Logging.Console.LoggerColorBehavior.Enabled;
         });
-
-        return services;
+        builder.AddFilter(typeof(WeatherPlugin).FullName, LogLevel.Information);
+        builder.AddFilter(typeof(NewsPlugin).FullName, LogLevel.Information);
+        builder.AddFilter(typeof(HomeAssistantPlugin).FullName, LogLevel.Information);
+        builder.AddFilter(typeof(LoggingHttpHandler).FullName, LogLevel.Information);
+        builder.AddFilter(typeof(StollService).FullName, LogLevel.Debug);
+        builder.SetMinimumLevel(LogLevel.Warning);
+        builder.AddSeq(config.SeqUrl, config.SeqApiKey);
+        return builder;
     }
 }

@@ -26,7 +26,7 @@ var services = new ServiceCollection();
 services.AddLogging(logBuilder => logBuilder.SetupLogging(config));
 services.AddSingleton<IConfig>(config)
         .AddSingleton<LoggingHttpHandler>()
-        .AddHttpClient(Options.DefaultName).AddHttpMessageHandler<LoggingHttpHandler>(); // comment the second part to disable logging
+        .AddHttpClient(Options.DefaultName);/*.AddHttpMessageHandler<LoggingHttpHandler>();*/ // comment the second part to disable logging
 using var provider = services.BuildServiceProvider();
 
 var httpClientFactory = provider.GetRequiredService<IHttpClientFactory>();
@@ -50,7 +50,7 @@ using WernstromService wernstrom = new(provider.GetRequiredService<ILogger<Werns
 
 try
 {
-    await wernstrom.ExecuteAsync(CancellationToken.None);
+    await wernstrom.ExecuteAsync(CancellationToken.None).ConfigureAwait(false);
 }
 catch (Exception ex)
 {

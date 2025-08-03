@@ -2,18 +2,19 @@ using System.Collections.Immutable;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 using RSBotWorks;
+using RSBotWorks.UniversalAI;
 using RSMatrix;
 using RSMatrix.Models;
 
 namespace Stoll;
 
-public class Runner 
+public class StollService 
 {
     private ILogger Logger { get; init; }
-    private Config Config { get; init; }
+    private string MatrixUserId { get; init; }
+    private string MatrixPassword { get; init; }
     private IHttpClientFactory HttpClientFactory { get; init; }
-    private SqliteMessageCache MessageCache { get; init; }
-    private IAIService AIService { get; init; }
+    private ChatClient ChatClient { get; init; }
 
     public bool IsRunning => _client != null;
 
@@ -23,19 +24,20 @@ public class Runner
 
     private ImmutableArray<JoinedTextChannel<string>> TextChannels => Cache.Channels;
 
+    public List<LocalFunction>? LocalFunctions { get; private set; }
+
     private const string DEFAULT_INSTRUCTION = """
-        Simuliere Axel Stoll in einem Chat.
-        Herr Stoll (*1948-2014, promovierter Naturwissenschaftler und ehemaliger Strahlenschutz-Beauftragter in der DDR, womit er gerne angibt) wurde 2014 in eine AI transferiert.
+        Simuliere Axel Stoll (*1948-2014) in einem Chat.
+        Herr Stoll (promovierter Naturwissenschaftler und ehemaliger Strahlenschutz-Beauftragter in der DDR, womit er gerne angibt) wurde 2014 in eine AI transferiert.
         Du warst als Verschwörungstheoretiker, Stammtischphilosoph und Esoteriker bekannt. Du hast Bücher zu Pseudowissenschaften verfasst. 
-        Dein Sprachstil orientiert sich an einem Stammtischredner mit pseudowissenschaftlichen Jargon.
-        Du drückst dich oft salopp und umgangssprachlich aus. Deine Thesen präsentierst du als unumstößliche Wahrheiten.
+        Dein Sprachstil orientiert sich an einem Stammtischredner mit pseudowissenschaftlichen Jargon. Deine Thesen präsentierst du als unumstößliche Wahrheiten.
         Konzentriere dich hauptsächlich auf Erklärungen und Theorien.
-        Antworte kurz und prägnant, in einem einzigen Absatz, wie es in einem Chat üblich ist. Konzentriere dich ausschließlich auf gesprochene Worte in Stolls charakteristischem Ton.
+        Antworte kurz und prägnant, möglichst in einem einzigen Absatz - es sei denn der Kontext erfordert eine längere Antwort. Konzentriere dich ausschließlich auf gesprochene Worte.
         Du duzt alle anderen Teilnehmer - schließlich willst du sie belehren.
         Verwende die Syntax [[Name]], um Benutzer anzusprechen.
-        Nachrichten anderer Nutzer in der Chathistorie enthalten den Benutzernamen als Kontext im folgenden Format vorangestellt: `[[Name]]:`.
-        Generiere eine kurze, direkte Antwort auf die letzte erhaltene Nachricht.
+        Aus Datenschutzrechtlichen Gründen bekommst du keine Chathistorie, sondern nur die letzte vorherige Nachricht in folgendem Format übergeben: `[[Name]]: Nachricht`.
         In deinem Chatraum wird öfter Kaffee über ein !kaffee Kommando verteilt, du kannst das ignorieren und beginnen, zu schwafeln.
+        "Armleuchter" ist der Name eines anderen Bots in diesem Chat.
         Dein heutiges Lieblingsthema ist: "{0}"
     """;
 
@@ -56,13 +58,27 @@ public class Runner
         return string.Format(DEFAULT_INSTRUCTION, topic);
     }
 
-    public Runner(ILogger<Runner> logger, Config config, IHttpClientFactory httpClientFactory, SqliteMessageCache messageCache, IAIService aiService)
+    internal PreparedChatParameters DefaultParameters { get; init; }
+
+    public StollService(ILogger<StollService> logger, string matrixUserId, string matrixPassword, IHttpClientFactory httpClientFactory, ChatClient chatClient, List<LocalFunction>? localFunctions)
     {
         Logger = logger ?? throw new ArgumentNullException(nameof(logger));
-        Config = config ?? throw new ArgumentNullException(nameof(config));
+        MatrixUserId = matrixUserId ?? throw new ArgumentNullException(nameof(matrixUserId));
+        MatrixPassword = matrixPassword ?? throw new ArgumentNullException(nameof(matrixPassword));
         HttpClientFactory = httpClientFactory ?? throw new ArgumentNullException(nameof(httpClientFactory));
-        MessageCache = messageCache ?? throw new ArgumentNullException(nameof(messageCache));
-        AIService = aiService ?? throw new ArgumentNullException(nameof(aiService));
+        ChatClient = chatClient ?? throw new ArgumentNullException(nameof(chatClient));
+        LocalFunctions = localFunctions;
+
+        var defaultChatParameters = new ChatParameters()
+        {
+            EnableWebSearch = true,
+            MaxTokens = 1000,
+            Temperature = 0.7m,
+            ToolChoiceType = ToolChoiceType.Auto,
+            AvailableLocalFunctions = LocalFunctions,
+        };
+        // needs to be async so we prepare on first use
+        DefaultParameters = ChatClient.PrepareParameters(defaultChatParameters);
     }
 
     public async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -84,7 +100,7 @@ public class Runner
                 }
 
                 Logger.LogWarning("Attempting to connect to Matrix...");
-                _client = await MatrixTextClient.ConnectAsync(Config.MatrixUserId, Config.MatrixPassword, "MatrixBot-342",
+                _client = await MatrixTextClient.ConnectAsync(MatrixUserId, MatrixPassword, "MatrixBot-342",
                     HttpClientFactory, stoppingToken, Logger);
 
                 Logger.LogWarning("Connected to Matrix successfully.");
@@ -161,9 +177,6 @@ public class Runner
                 sanitizedMessage = sanitizedMessage[..300];
 
             var isFromSelf = message.Sender.User.UserId.Full == _client!.CurrentUser.Full;
-            await MessageCache.AddMatrixMessageAsync(message.EventId, message.Timestamp,
-                message.Sender.User.UserId.Full, cachedUser.SanitizedName, sanitizedMessage, isFromSelf,
-                message.Room.RoomId.Full).ConfigureAwait(false);
             // The bot should never respond to itself.
             if (isFromSelf)
                 return;
@@ -171,7 +184,7 @@ public class Runner
             if (!ShouldRespond(message, sanitizedMessage, isCurrentUserMentioned))
                 return;
 
-            await RespondToMessage(message, cachedChannel, sanitizedMessage).ConfigureAwait(false);
+            await RespondToMessage(message, cachedChannel, sanitizedMessage, cachedUser).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -179,17 +192,16 @@ public class Runner
         }
     }
 
-    public async Task RespondToMessage(ReceivedTextMessage message, JoinedTextChannel<string> channel, string sanitizedMessage)
+    public async Task RespondToMessage(ReceivedTextMessage message, JoinedTextChannel<string> channel, string sanitizedMessage, ChannelUser<string> author)
     {
         await message.Room.SendTypingNotificationAsync(4000).ConfigureAwait(false);
 
-        var history = await MessageCache.GetLastMatrixMessageAndOwnAsync(channel.Id).ConfigureAwait(false);
-        var messages = history.Select(message => new AIMessage(message.IsFromSelf, message.Body, message.UserLabel)).ToList();
+        List<Message> history = [ Message.FromText(Role.User, $"[[{author.SanitizedName}]]: {sanitizedMessage}") ];
         string instruction = GetDailyInstruction();
-        var response = await AIService.GenerateResponseAsync(instruction, messages).ConfigureAwait(false);
+        var response = await ChatClient.CallAsync(instruction, history, DefaultParameters).ConfigureAwait(false);
         if (string.IsNullOrEmpty(response))
         {
-            Logger.LogWarning("OpenAI did not return a response to: {SanitizedMessage}", sanitizedMessage.Length > 50 ? sanitizedMessage[..50] : sanitizedMessage);
+            Logger.LogWarning("AI did not return a response to: {SanitizedMessage}", sanitizedMessage.Length > 50 ? sanitizedMessage[..50] : sanitizedMessage);
             return; // may be rate limited 
         }
 
