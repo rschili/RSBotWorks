@@ -252,7 +252,7 @@ public partial class WernstromService : IDisposable
         }
 
         stopwatch.Restart();
-        foreach (var message in liveHistory)
+        foreach (var message in liveHistory.Reverse())
         {
             await AddMessageToHistory(history, message, cachedChannel).ConfigureAwait(false);
         }

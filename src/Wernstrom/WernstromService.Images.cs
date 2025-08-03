@@ -71,6 +71,7 @@ public partial class WernstromService
                 MimeType = mimeType,
                 Data = imageData
             };
+            imageAttachments.Add(imageAttachment);
         }
 
         return imageAttachments.Count > 0 ? imageAttachments : null;

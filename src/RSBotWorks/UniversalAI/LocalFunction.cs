@@ -70,7 +70,7 @@ public class LocalFunction
         foreach (var param in methodParams)
         {
             var paramDescriptionAttr = param.GetCustomAttribute<DescriptionAttribute>();
-            string paramDescription = paramDescriptionAttr?.Description ?? $"Parameter {param.Name}";
+            string paramDescription = paramDescriptionAttr?.Description ?? "";
             bool isRequired = !param.HasDefaultValue;
             LocalFunctionParameterType paramType = GetParameterType(param.ParameterType);
 
@@ -134,9 +134,9 @@ public class LocalFunction
         return parameterType.Name switch
         {
             nameof(String) => LocalFunctionParameterType.String,
-            nameof(Boolean) => LocalFunctionParameterType.Bool,
-            nameof(Int32) => LocalFunctionParameterType.Int,
-            nameof(Double) => LocalFunctionParameterType.Double,
+            nameof(Boolean) => LocalFunctionParameterType.Boolean,
+            nameof(Int32) => LocalFunctionParameterType.Number,
+            nameof(Double) => LocalFunctionParameterType.Number,
             _ => throw new InvalidOperationException($"Unsupported parameter type: {parameterType.Name}. Only string, bool, int, and double are supported.")
         };
     }
@@ -161,9 +161,8 @@ public class LocalFunctionParameter
 public enum LocalFunctionParameterType
 {
     String,
-    Bool,
-    Int,
-    Double
+    Boolean,
+    Number,
 }
 
 [AttributeUsage(AttributeTargets.Method, AllowMultiple = false)]

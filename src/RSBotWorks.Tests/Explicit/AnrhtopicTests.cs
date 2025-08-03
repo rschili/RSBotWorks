@@ -179,5 +179,44 @@ public class AnthropicTests
         if (logger != null)
             await logger.LogInformationAsync($"Response: {response}");
     }
+
+    [Test, Explicit]
+    public async Task SendHeiseHeadlineRequest()
+    {
+        var env = DotNetEnv.Env.NoEnvVars().TraversePath().Load().ToDotEnvDictionary();
+        string apiKey = env["CLAUDE_API_KEY"];
+        if (string.IsNullOrEmpty(apiKey))
+        {
+            Assert.Fail("CLAUDE_API_KEY is not set in the .env file.");
+            return;
+        }
+
+        var httpClientFactory = Substitute.For<IHttpClientFactory>();
+        httpClientFactory.CreateClient(Arg.Any<string>()).Returns(_ => new HttpClient());
+
+        List<LocalFunction> tools = [];
+        var heisePlugin = new NewsPlugin(httpClientFactory, null);
+        tools.AddRange(LocalFunction.FromObject(heisePlugin));
+        var chatClient = ChatClient.CreateAnthropicClient(AnthropicModels.Claude4Sonnet, apiKey, null);
+
+        var parameters = new ChatParameters()
+        {
+            Temperature = 0.7m,
+            MaxTokens = 1000,
+            ToolChoiceType = ToolChoiceType.Auto,
+            AvailableLocalFunctions = tools,
+        };
+
+        List<Message> messages = [
+            Message.FromText(Role.User, "[[krael]]: Kannst du mir die aktuellen Heise-Schlagzeilen zeigen?"),
+        ];
+        var preparedParameters = chatClient.PrepareParameters(parameters);
+        var response = await chatClient.CallAsync(Wernstrom.WernstromService.CHAT_INSTRUCTION, messages, preparedParameters).ConfigureAwait(false);
+        await Assert.That(response).IsNotNullOrEmpty();
+        var logger = TestContext.Current?.GetDefaultLogger();
+        if (logger != null)
+            await logger.LogInformationAsync($"Response: {response}");
+
+    }
 }
 

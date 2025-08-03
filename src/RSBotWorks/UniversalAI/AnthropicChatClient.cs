@@ -168,6 +168,7 @@ internal class AnthropicChatClient : TypedChatClient<AnthropicClient>
             foreach (var function in parameters.AvailableLocalFunctions)
             {
                 var inputschema = new InputSchema();
+                inputschema.Type = "object";
                 inputschema.Properties = function.Parameters.ToDictionary(
                     p => p.Name,
                     p => new Property
@@ -175,7 +176,7 @@ internal class AnthropicChatClient : TypedChatClient<AnthropicClient>
                         Type = p.Type.ToString().ToLowerInvariant(),
                         Description = p.Description
                     });
-                inputschema.Required = function.Parameters.Select(p => p.Name).ToList();
+                inputschema.Required = function.Parameters.Where(p => p.IsRequired).Select(p => p.Name).ToList();
                 JsonSerializerOptions jsonSerializationOptions = new()
                 {
                     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
