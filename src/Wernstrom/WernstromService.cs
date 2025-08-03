@@ -181,7 +181,7 @@ public partial class WernstromService : IDisposable
 
     private async Task MessageReceivedAsync(SocketMessage arg)
     {
-        //await UpdateStatusAsync();
+        await UpdateStatusAsync();
         if (arg.Type != MessageType.Default && arg.Type != MessageType.Reply)
             return;
 
