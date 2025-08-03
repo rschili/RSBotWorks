@@ -90,22 +90,20 @@ internal class AnthropicChatClient : TypedChatClient<AnthropicClient>
                     case Anthropic.SDK.Messaging.ImageContent imageContent:
                         // Handle image content if needed
                         break;
-                    case WebSearchResultContent webSearch:
-                        toolCalls++; // count this as a tool call
-                        break;
-                    default:
-                        Logger.LogWarning("Unknown content type received: {ContentType}", content.GetType().Name);
-                        break;
                 }
             }
 
+            if (response.Usage.ServerToolUse?.WebSearchRequests != null)
+                toolCalls += response.Usage.ServerToolUse.WebSearchRequests.Value;
+
             if (response.ToolCalls == null || response.ToolCalls.Count == 0)
-            {
-                break; // No tool calls, we can exit the loop
-            }
+                {
+                    break; // No tool calls, we can exit the loop
+                }
 
             foreach (var toolCall in response.ToolCalls)
             {
+                toolCalls++;
                 var nativeTool = parameters.OriginalParameters.AvailableLocalFunctions?.FirstOrDefault(f => f.Name == toolCall.Name);
                 if (nativeTool == null)
                 {
@@ -195,12 +193,11 @@ internal class AnthropicChatClient : TypedChatClient<AnthropicClient>
         if (parameters.EnableWebSearch)
         {
             tools.Add(ServerTools.GetWebSearchTool(5, userLocation: new UserLocation
-            {
-                City = "Heidelberg",
-                Region = "Baden-Württemberg",
-                Country = "Germany",
-                Timezone = "Europe/Berlin"
-            }));
+                {
+                    City = "Heidelberg",
+                    Country = "DE",
+                    Timezone = "Europe/Berlin"
+                }));
         }
 
         if (tools.Any())

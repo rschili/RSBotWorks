@@ -8,7 +8,7 @@ using Anthropic.SDK.Constants;
 
 namespace RSBotWorks.Tests;
 
-public class OpenAITests
+public class AnthropicTests
 {
     [Test, Explicit]
     public async Task SendGenericRequest()
@@ -17,14 +17,14 @@ public class OpenAITests
         CultureInfo.DefaultThreadCurrentCulture = cultureInfo;
         CultureInfo.DefaultThreadCurrentUICulture = cultureInfo;
         var env = DotNetEnv.Env.NoEnvVars().TraversePath().Load().ToDotEnvDictionary();
-        string openAiKey = env["OPENAI_API_KEY"];
-        if (string.IsNullOrEmpty(openAiKey))
+        string apiKey = env["CLAUDE_API_KEY"];
+        if (string.IsNullOrEmpty(apiKey))
         {
-            Assert.Fail("OPENAI_API_KEY is not set in the .env file.");
+            Assert.Fail("CLAUDE_API_KEY is not set in the .env file.");
             return;
         }
 
-        var chatClient = ChatClient.CreateOpenAIClient(OpenAIModel.GPT41, openAiKey, null);
+        var chatClient = ChatClient.CreateAnthropicClient(AnthropicModels.Claude4Sonnet, apiKey, null);
 
         List<Message> messages = [
             Message.FromText(Role.User, "[[sikk]]: Hey, wir geht's?"),
@@ -48,10 +48,10 @@ public class OpenAITests
     public async Task SendWeatherToolRequest()
     {
         var env = DotNetEnv.Env.NoEnvVars().TraversePath().Load().ToDotEnvDictionary();
-        string openAiKey = env["OPENAI_API_KEY"];
-        if (string.IsNullOrEmpty(openAiKey))
+        string apiKey = env["CLAUDE_API_KEY"];
+        if (string.IsNullOrEmpty(apiKey))
         {
-            Assert.Fail("OPENAI_API_KEY is not set in the .env file.");
+            Assert.Fail("CLAUDE_API_KEY is not set in the .env file.");
             return;
         }
         string openWeatherMapKey = env["OPENWEATHERMAP_API_KEY"];
@@ -67,7 +67,7 @@ public class OpenAITests
         List<LocalFunction> tools = [];
         var weatherPlugin = new WeatherPlugin(httpClientFactory, null, new WeahterPluginConfig() { ApiKey = openWeatherMapKey });
         tools.AddRange(LocalFunction.FromObject(weatherPlugin));
-        var chatClient = ChatClient.CreateOpenAIClient(OpenAIModel.GPT41, openAiKey, null);
+        var chatClient = ChatClient.CreateAnthropicClient(AnthropicModels.Claude4Sonnet, apiKey, null);
 
         var parameters = new ChatParameters()
         {
@@ -90,7 +90,7 @@ public class OpenAITests
             await logger.LogInformationAsync($"Response: {response}");
     }
 
-    [Test, Explicit, Skip("WebSearch does not work on ChatClient with OpenAI yet")]
+    [Test, Explicit]
     public async Task RequestWebSearch()
     {
         var env = DotNetEnv.Env.NoEnvVars().TraversePath().Load().ToDotEnvDictionary();
@@ -132,10 +132,10 @@ public class OpenAITests
     public async Task SendCarToolRequest()
     {
         var env = DotNetEnv.Env.NoEnvVars().TraversePath().Load().ToDotEnvDictionary();
-        string openAiKey = env["OPENAI_API_KEY"];
-        if (string.IsNullOrEmpty(openAiKey))
+        string apiKey = env["CLAUDE_API_KEY"];
+        if (string.IsNullOrEmpty(apiKey))
         {
-            Assert.Fail("OPENAI_API_KEY is not set in the .env file.");
+            Assert.Fail("CLAUDE_API_KEY is not set in the .env file.");
             return;
         }
         string homeAssistantUrl = env["HA_API_URL"];
@@ -157,7 +157,7 @@ public class OpenAITests
         List<LocalFunction> tools = [];
         var homeAssistantPlugin = new HomeAssistantPlugin(httpClientFactory, new HomeAssistantPluginConfig() { HomeAssistantUrl = homeAssistantUrl, HomeAssistantToken = homeAssistantToken }, null);
         tools.AddRange(LocalFunction.FromObject(homeAssistantPlugin));
-        var chatClient = ChatClient.CreateOpenAIClient(OpenAIModel.GPT41, openAiKey, null);
+        var chatClient = ChatClient.CreateAnthropicClient(AnthropicModels.Claude4Sonnet, apiKey, null);
 
         var parameters = new ChatParameters()
         {

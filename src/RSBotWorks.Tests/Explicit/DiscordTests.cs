@@ -3,7 +3,7 @@ using DotNetEnv.Extensions;
 using Microsoft.Extensions.Logging.Abstractions;
 using TUnit.Core.Logging;
 using System.Globalization;
-using RSBotWorks.Tools;
+using RSBotWorks.UniversalAI;
 
 namespace RSBotWorks.Tests;
 
@@ -26,14 +26,13 @@ public class DiscordTests
         var sql = await SqliteMessageCache.CreateAsync(":memory:"); ;
         await Assert.That(sql).IsNotNull();
 
-        var toolService = new ToolHub();
+        List<LocalFunction> tools = [];
         var httpClientFactory = Substitute.For<IHttpClientFactory>();
-        var credentials = new AIServiceCredentials(openAiKey);
-        var aiService = AIServiceFactory.CreateService(AIModel.GPT41, credentials, toolService, httpClientFactory);
+        var chatClient = ChatClient.CreateOpenAIClient(OpenAIModel.GPT41, openAiKey);
 
         var config = Wernstrom.Config.LoadFromEnvFile();
         await Assert.That(config).IsNotNull();
-        var discordService = new Wernstrom.Runner(NullLogger<Wernstrom.Runner>.Instance, httpClientFactory, config, sql, aiService);
+        var discordService = new Wernstrom.WernstromService(NullLogger<Wernstrom.WernstromService>.Instance, httpClientFactory, "", chatClient, null);
 
         var statusMessages = await discordService.CreateNewStatusMessages();
         await Assert.That(statusMessages).IsNotNull();

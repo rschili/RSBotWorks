@@ -68,20 +68,22 @@ internal class OpenAIChatClient : TypedChatClient<OpenAI.Chat.ChatClient>
             MaxOutputTokenCount = 1000,
             StoredOutputEnabled = false,
             ResponseFormat = ChatResponseFormat.CreateTextFormat(),
-            ToolChoice = parameters.ToolChoiceType == ToolChoiceType.Auto ? ChatToolChoice.CreateAutoChoice() : ChatToolChoice.CreateNoneChoice(),
         };
+
         if (parameters.EnableWebSearch)
         {
-            options.WebSearchOptions = new();
+            Logger.LogError("Web Search not supported by OpenAI with chat client yet.");
+            //options.WebSearchOptions = new();
         }
 
         if (parameters.AvailableLocalFunctions != null && parameters.AvailableLocalFunctions.Count > 0)
+        {
+            foreach (var tool in GenerateOpenAITools(parameters.AvailableLocalFunctions))
             {
-                foreach (var tool in GenerateOpenAITools(parameters.AvailableLocalFunctions))
-                {
-                    options.Tools.Add(tool);
-                }
+                options.Tools.Add(tool);
             }
+            options.ToolChoice = parameters.ToolChoiceType == ToolChoiceType.Auto ? ChatToolChoice.CreateAutoChoice() : ChatToolChoice.CreateNoneChoice();
+        }
         
         return new OpenAIChatParameters
         {

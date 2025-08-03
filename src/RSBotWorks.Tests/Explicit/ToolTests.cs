@@ -2,8 +2,10 @@ using NSubstitute;
 using DotNetEnv.Extensions;
 using TUnit.Core.Logging;
 using System.Globalization;
-using RSBotWorks.Tools;
 using Microsoft.Extensions.Logging.Abstractions;
+using RSBotWorks.UniversalAI;
+using RSBotWorks.Plugins;
+using System.Text.Json;
 
 namespace RSBotWorks.Tests;
 
@@ -25,15 +27,26 @@ public class ToolTests
 
         var httpClientFactory = Substitute.For<IHttpClientFactory>();
         httpClientFactory.CreateClient(Arg.Any<string>()).Returns(_ => new HttpClient());
-        var service = new WeatherToolProvider(httpClientFactory, NullLogger<WeatherToolProvider>.Instance, apiKey);
+        
+        var weatherPlugin = new WeatherPlugin(httpClientFactory, NullLogger<WeatherPlugin>.Instance, new WeahterPluginConfig() { ApiKey = apiKey });
+        var functions = LocalFunction.FromObject(weatherPlugin);
+        var currentWeatherFunction = functions.FirstOrDefault(f => f.Name == "get_current_weather");
+        
+        if (currentWeatherFunction == null)
+        {
+            Assert.Fail("get_current_weather function not found");
+            return;
+        }
 
-        var response = await service.GetCurrentWeatherAsync("Dielheim").ConfigureAwait(false);
+        using var args = JsonDocument.Parse("""{"location": "Dielheim"}""");
+        var response = await currentWeatherFunction.ExecuteAsync(args).ConfigureAwait(false);
         await Assert.That(response).IsNotNullOrEmpty();
         var logger = TestContext.Current?.GetDefaultLogger();
         if (logger != null)
             await logger.LogInformationAsync($"Response for Dielheim: {response}");
 
-        var response2 = await service.GetCurrentWeatherAsync("69234").ConfigureAwait(false);
+        using var args2 = JsonDocument.Parse("""{"location": "69234"}""");
+        var response2 = await currentWeatherFunction.ExecuteAsync(args2).ConfigureAwait(false);
         await Assert.That(response2).IsNotNullOrEmpty();
         if (logger != null)
             await logger.LogInformationAsync($"Response for ZIP 69234: {response2}");
@@ -56,15 +69,26 @@ public class ToolTests
 
         var httpClientFactory = Substitute.For<IHttpClientFactory>();
         httpClientFactory.CreateClient(Arg.Any<string>()).Returns(_ => new HttpClient());
-        var service = new WeatherToolProvider(httpClientFactory, NullLogger<WeatherToolProvider>.Instance, apiKey);
+        
+        var weatherPlugin = new WeatherPlugin(httpClientFactory, NullLogger<WeatherPlugin>.Instance, new WeahterPluginConfig() { ApiKey = apiKey });
+        var functions = LocalFunction.FromObject(weatherPlugin);
+        var forecastFunction = functions.FirstOrDefault(f => f.Name == "weather_forecast");
+        
+        if (forecastFunction == null)
+        {
+            Assert.Fail("get_weather_forecast function not found");
+            return;
+        }
 
-        var response = await service.GetWeatherForecastAsync("Dielheim").ConfigureAwait(false);
+        using var args = JsonDocument.Parse("""{"location": "Dielheim"}""");
+        var response = await forecastFunction.ExecuteAsync(args).ConfigureAwait(false);
         await Assert.That(response).IsNotNullOrEmpty();
         var logger = TestContext.Current?.GetDefaultLogger();
         if (logger != null)
             await logger.LogInformationAsync($"Response for Dielheim: {response}");
 
-        var response2 = await service.GetWeatherForecastAsync("69234").ConfigureAwait(false);
+        using var args2 = JsonDocument.Parse("""{"location": "69234"}""");
+        var response2 = await forecastFunction.ExecuteAsync(args2).ConfigureAwait(false);
         await Assert.That(response2).IsNotNullOrEmpty();
         if (logger != null)
             await logger.LogInformationAsync($"Response for ZIP 69234: {response2}");
@@ -75,9 +99,19 @@ public class ToolTests
     {
         var httpClientFactory = Substitute.For<IHttpClientFactory>();
         httpClientFactory.CreateClient(Arg.Any<string>()).Returns(_ => new HttpClient());
-        var service = new NewsToolProvider(httpClientFactory, NullLogger<NewsToolProvider>.Instance);
+        
+        var newsPlugin = new NewsPlugin(httpClientFactory, NullLogger<NewsPlugin>.Instance);
+        var functions = LocalFunction.FromObject(newsPlugin);
+        var heiseFunction = functions.FirstOrDefault(f => f.Name == "heise_headlines");
+        
+        if (heiseFunction == null)
+        {
+            Assert.Fail("heise_headlines function not found");
+            return;
+        }
 
-        var response = await service.GetHeiseHeadlinesAsync(10).ConfigureAwait(false);
+        using var args = JsonDocument.Parse("""{"count": 10}""");
+        var response = await heiseFunction.ExecuteAsync(args).ConfigureAwait(false);
         await Assert.That(response).IsNotNullOrEmpty();
         var logger = TestContext.Current?.GetDefaultLogger();
         if (logger != null)
@@ -89,9 +123,19 @@ public class ToolTests
     {
         var httpClientFactory = Substitute.For<IHttpClientFactory>();
         httpClientFactory.CreateClient(Arg.Any<string>()).Returns(_ => new HttpClient());
-        var service = new NewsToolProvider(httpClientFactory, NullLogger<NewsToolProvider>.Instance);
+        
+        var newsPlugin = new NewsPlugin(httpClientFactory, NullLogger<NewsPlugin>.Instance);
+        var functions = LocalFunction.FromObject(newsPlugin);
+        var postillonFunction = functions.FirstOrDefault(f => f.Name == "postillon_headlines");
+        
+        if (postillonFunction == null)
+        {
+            Assert.Fail("postillon_headlines function not found");
+            return;
+        }
 
-        var response = await service.GetPostillonHeadlinesAsync(30).ConfigureAwait(false);
+        using var args = JsonDocument.Parse("""{"count": 30}""");
+        var response = await postillonFunction.ExecuteAsync(args).ConfigureAwait(false);
         await Assert.That(response).IsNotNullOrEmpty();
         var logger = TestContext.Current?.GetDefaultLogger();
         if (logger != null)
@@ -118,13 +162,19 @@ public class ToolTests
 
         var httpClientFactory = Substitute.For<IHttpClientFactory>();
         httpClientFactory.CreateClient(Arg.Any<string>()).Returns(_ => new HttpClient());
-        var service = new HomeAssistantToolProvider(
-            httpClientFactory,
-            url,
-            token,
-            NullLogger<HomeAssistantToolProvider>.Instance);
+        
+        var homeAssistantPlugin = new HomeAssistantPlugin(httpClientFactory, new HomeAssistantPluginConfig() { HomeAssistantUrl = url, HomeAssistantToken = token }, NullLogger<HomeAssistantPlugin>.Instance);
+        var functions = LocalFunction.FromObject(homeAssistantPlugin);
+        var cupraFunction = functions.FirstOrDefault(f => f.Name == "get_cupra_info");
+        
+        if (cupraFunction == null)
+        {
+            Assert.Fail("get_cupra_info function not found");
+            return;
+        }
 
-        var response = await service.GetCupraInfoAsync().ConfigureAwait(false);
+        using var args = JsonDocument.Parse("""{}""");
+        var response = await cupraFunction.ExecuteAsync(args).ConfigureAwait(false);
         await Assert.That(response).IsNotNullOrEmpty();
         var logger = TestContext.Current?.GetDefaultLogger();
         if (logger != null)
