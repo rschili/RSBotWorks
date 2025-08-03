@@ -32,9 +32,9 @@ public abstract class ChatClient : IDisposable
 
     public abstract void Dispose();
 
-    public abstract Task<string> CallAsync(string systemPrompt, IEnumerable<Message> inputs, NativeChatParameters parameters);
+    public abstract Task<string> CallAsync(string systemPrompt, IEnumerable<Message> inputs, CompiledChatParameters parameters);
 
-    public abstract Task<NativeChatParameters> CompileParameters(ChatParameters parameters);
+    public abstract Task<CompiledChatParameters> CompileParametersAsync(ChatParameters parameters);
 }
 
 public enum Role
@@ -95,9 +95,9 @@ public enum ToolChoiceType
     None
 }
 
-public abstract class NativeChatParameters
+public abstract class CompiledChatParameters
 {
-    public ChatParameters OriginalParameters { get; init; }
+    public required ChatParameters OriginalParameters { get; init; }
 }
 
 public record ChatParameters
@@ -117,4 +117,9 @@ public record ChatParameters
     public bool EnableWebSearch { get; set; } = false;
 
     public IEnumerable<LocalFunction>? AvailableLocalFunctions { get; set; }
+
+    /// <summary>
+    /// Can be used to prefill the response, this text will always be included in the response.
+    /// </summary>
+    public string? Prefill { get; set; }
 }

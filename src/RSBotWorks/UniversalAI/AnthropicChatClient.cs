@@ -1,14 +1,20 @@
 
+using System.Text;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using System.Text.Json.Serialization;
 using Anthropic.SDK;
+using Anthropic.SDK.Common;
 using Anthropic.SDK.Messaging;
+using Discord;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 
 namespace RSBotWorks.UniversalAI;
 
-internal class AnthropicChatParameters : NativeChatParameters
+internal class AnthropicChatParameters : CompiledChatParameters
 {
-
+    public List<Anthropic.SDK.Common.Tool>? Tools { get; internal set; }
 }
 
 internal class AnthropicChatClient : TypedChatClient<AnthropicClient>
@@ -19,162 +25,189 @@ internal class AnthropicChatClient : TypedChatClient<AnthropicClient>
     }
 
 
-    public override Task<string> CallAsync(string systemPrompt, IEnumerable<Message> inputs, NativeChatParameters parameters)
+    public override async Task<string> CallAsync(string systemPrompt, IEnumerable<Message> inputs, CompiledChatParameters parameters)
     {
-        throw new NotImplementedException();
-    }
-
-    public override Task<NativeChatParameters> CompileParameters(ChatParameters parameters)
-    {
-        var nativeParameters = new AnthropicChatParameters() { OriginalParameters = parameters };
-        // TODO: convert tools
-        List<Tool> tools = [];
-    }
-
-    public override async Task<string?> DoGenerateResponseAsync(string systemPrompt, IEnumerable<AIMessage> inputs, ResponseKind kind = ResponseKind.Default)
-    {
-        var processedInputs = inputs;
-        var processedPrompt = systemPrompt;
-
-        var messages = new List<Message>()
-{
-    new Message(RoleType.User, "Who won the world series in 2020?"),
-    new Message(RoleType.Assistant, "The Los Angeles Dodgers won the World Series in 2020."),
-    new Message(RoleType.User, "Where was it played?"),
-};
-
-        var parameters = new MessageParameters()
+        if (parameters is not AnthropicChatParameters anthropicParameters)
         {
-            Messages = messages,
-            MaxTokens = 1024,
-            Model = AnthropicModels.Claude35Sonnet,
-            Stream = false,
-            Temperature = 1.0m,
+            throw new ArgumentException("Parameters must be of type AnthropicChatParameters", nameof(parameters));
+        }
+        try
+        {
+            var message = new MessageParameters()
+            {
+                System = [new SystemMessage(systemPrompt)],
+                Messages = inputs.Select(InputToMessage).ToList(),
+                MaxTokens = parameters.OriginalParameters.MaxTokens,
+                Model = ModelName,
+                Stream = false,
+                Temperature = parameters.OriginalParameters.Temperature,
+                TopK = parameters.OriginalParameters.TopK,
+                TopP = parameters.OriginalParameters.TopP,
+                Tools = anthropicParameters.Tools,
+            };
+
+            if (anthropicParameters.Tools != null && anthropicParameters.Tools.Any() && parameters.OriginalParameters.ToolChoiceType == ToolChoiceType.Auto)
+            {
+                message.ToolChoice = new ToolChoice() { Type = Anthropic.SDK.Messaging.ToolChoiceType.Auto };
+            }
+
+            StringBuilder textResponse = new StringBuilder();
+            if (parameters.OriginalParameters.Prefill != null)
+            {
+                message.Messages.Add(new Anthropic.SDK.Messaging.Message(RoleType.Assistant, parameters.OriginalParameters.Prefill));
+                textResponse.Append(parameters.OriginalParameters.Prefill);
+            }
+
+            return await LoopToCompletion(message, anthropicParameters, textResponse);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error while calling Anthropic API");
+            return "An error occurred while processing your request.";
+        }
+    }
+
+    private async Task<string> LoopToCompletion(MessageParameters message, AnthropicChatParameters parameters, StringBuilder result)
+    {
+        int responses = 1;
+        int toolCalls = 0;
+        while (true)
+        {
+            if(responses > 3 || toolCalls > 5)
+            {
+                Logger.LogWarning("Stopping loop due to excessive responses or tool calls: {Responses}, {ToolCalls}", responses, toolCalls);
+                break; // Prevent infinite loops
+            }
+            var response = await InnerClient.Messages.GetClaudeMessageAsync(message);
+            responses++;
+            message.Messages.Add(response.Message);
+
+            foreach (var content in response.Content)
+            {
+                switch (content)
+                {
+                    case Anthropic.SDK.Messaging.TextContent textContent:
+                        result.Append(textContent.Text);
+                        break;
+                    case Anthropic.SDK.Messaging.ImageContent imageContent:
+                        // Handle image content if needed
+                        break;
+                    case WebSearchResultContent webSearch:
+                        toolCalls++; // count this as a tool call
+                        break;
+                    default:
+                        Logger.LogWarning("Unknown content type received: {ContentType}", content.GetType().Name);
+                        break;
+                }
+            }
+
+            if (response.ToolCalls == null || response.ToolCalls.Count == 0)
+            {
+                break; // No tool calls, we can exit the loop
+            }
+
+            foreach (var toolCall in response.ToolCalls)
+            {
+                var nativeTool = parameters.OriginalParameters.AvailableLocalFunctions?.FirstOrDefault(f => f.Name == toolCall.Name);
+                if (nativeTool == null)
+                {
+                    Logger.LogWarning("Tool call '{ToolName}' not found in available local functions.", toolCall.Name);
+                    message.Messages.Add(new Anthropic.SDK.Messaging.Message(toolCall, $"Could not find tool with name {toolCall.Name}"));
+                    continue;
+                }
+
+                var toolResponse = await nativeTool.ExecuteAsync(toolCall.Arguments);
+                message.Messages.Add(new Anthropic.SDK.Messaging.Message(toolCall, toolResponse));
+            }
+        }
+
+        if (toolCalls > 0)
+            result.Append($"*{(toolCalls == 1 ? "" : toolCalls)}");
+
+        return result.ToString();
+     }
+
+    private Anthropic.SDK.Messaging.Message InputToMessage(Message message, int arg2)
+    {
+        var result = new Anthropic.SDK.Messaging.Message();
+        result.Role = message.Role switch
+        {
+            Role.User => RoleType.User,
+            Role.Assistant => RoleType.Assistant,
+            _ => throw new ArgumentOutOfRangeException(nameof(message.Role), "Unknown role in message")
         };
-        parameters.Tools
-                var firstResult = await InnerClient.Messages.GetClaudeMessageAsync(parameters);
 
-        if (kind == ResponseKind.StructuredJsonArray)
+        result.Content = message.Content.Select<MessageContent, ContentBase>(content =>
         {
-            processedPrompt += """
-                
-                Please respond with a JSON object that contains a 'values' property that holds an array of strings.
-                For example: { "values": ["value1", "value2", "value3"] }
-                """;
-            processedInputs = inputs.Append(new AIMessage(true, JSON_ARRAY_PREFILL, ""));
-        }
-        var request = new ClaudeMessageRequest
-        {
-            Model = Model,
-            MaxTokens = 1000,
-            Temperature = 0.6,
-            System = new List<ClaudeSystemContent>
+            if (content is TextContent textContent)
             {
-                new ClaudeSystemContent { Text = processedPrompt }
-            },
-            Messages = [.. processedInputs.Select(input =>
+                return new Anthropic.SDK.Messaging.TextContent() { Text = textContent.Text };
+            }
+            else if (content is ImageContent imageContent)
             {
-                var text = input.IsSelf ? input.Message : $"[[{input.ParticipantName}]] {input.Message}";
-                return ClaudeRequestMessage.Create(input.IsSelf ? ClaudeRole.Assistant : ClaudeRole.User, text);
-            })],
-        };
-
-        var response = await SendRequestAsync(request);
-        var responseText = ExtractTextFromResponse(response);
-
-        if (kind == ResponseKind.StructuredJsonArray)
-            responseText = JSON_ARRAY_PREFILL + responseText;
-
-        return responseText;
-    }
-
-    private async Task<ClaudeResponse?> SendRequestAsync(ClaudeMessageRequest request)
-    {
-        using var client = CreateClientWithApiKey();
-        var response = await client.PostAsJsonAsync(ENDPOINT_URL, request).ConfigureAwait(false);
-
-        if (response.Content == null)
-        {
-            Logger.LogWarning("Claude response content was null. Status code: {StatusCode}", response.StatusCode);
-            return null;
-        }
-
-        var responseStream = await response.Content.ReadAsStreamAsync().ConfigureAwait(false);
-        var claudeResponse = await JsonSerializer.DeserializeAsync<ClaudeResponse>(responseStream);
-
-        if (claudeResponse == null)
-        {
-            Logger.LogWarning("Claude response deserialization failed. Status code: {StatusCode}", response.StatusCode);
-            return null;
-        }
-
-        if (!response.IsSuccessStatusCode)
-        {
-            if (claudeResponse is ClaudeErrorResponse claudeError)
-            {
-                Logger.LogError("Claude AI error: {ErrorMessage}", claudeError.Error?.Message);
+                return new Anthropic.SDK.Messaging.ImageContent()
+                {
+                    Source =
+                        new ImageSource() { MediaType = imageContent.MimeType, Type = SourceType.base64, Data = Convert.ToBase64String(imageContent.Data) }
+                };
             }
             else
             {
-                Logger.LogError("Failed to get response from Claude AI. Status code: {StatusCode}", response.StatusCode);
+                throw new ArgumentException("Unknown content type in message", nameof(message.Content));
             }
-            return null;
-        }
-
-        return claudeResponse;
+        }).ToList();
+        return result;
     }
 
-    private string? ExtractTextFromResponse(ClaudeResponse? response)
+    public override Task<CompiledChatParameters> CompileParametersAsync(ChatParameters parameters)
     {
-        if (response is not ClaudeMessageResponse messageResponse)
+        var compiledParameters = new AnthropicChatParameters() { OriginalParameters = parameters };
+        // TODO: convert tools
+        List<Anthropic.SDK.Common.Tool> tools = [];
+        // Convert to native tools
+        if (parameters.AvailableLocalFunctions != null)
         {
-            Logger.LogWarning("Response was not a ClaudeMessageResponse");
-            return null;
+            foreach (var function in parameters.AvailableLocalFunctions)
+            {
+                var inputschema = new InputSchema();
+                inputschema.Properties = function.Parameters.ToDictionary(
+                    p => p.Name,
+                    p => new Property
+                    {
+                        Type = p.Type.ToString().ToLowerInvariant(),
+                        Description = p.Description
+                    });
+                inputschema.Required = function.Parameters.Select(p => p.Name).ToList();
+                JsonSerializerOptions jsonSerializationOptions = new()
+                {
+                    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+                    Converters = { new JsonStringEnumConverter() },
+                    ReferenceHandler = ReferenceHandler.IgnoreCycles,
+                };
+                string jsonString = JsonSerializer.Serialize(inputschema, jsonSerializationOptions);
+                tools.Add(new Anthropic.SDK.Common.Tool(
+                    new Function(function.Name, function.Description,
+                        JsonNode.Parse(jsonString))
+                ));
+            }
         }
 
-        if (messageResponse.Content == null || !messageResponse.Content.Any())
+        if (parameters.EnableWebSearch)
         {
-            Logger.LogWarning("Claude response content was empty");
-            return null;
+            tools.Add(ServerTools.GetWebSearchTool(5, userLocation: new UserLocation
+            {
+                City = "Heidelberg",
+                Region = "Baden-Württemberg",
+                Country = "Germany",
+                Timezone = "Europe/Berlin"
+            }));
         }
 
-        var responseText = HandleClaudeResponse(messageResponse);
-        if (string.IsNullOrEmpty(responseText))
-        {
-            Logger.LogWarning("Claude response text was empty after handling");
-            return null;
-        }
-
-        return responseText;
-    }
-
-    public string HandleClaudeResponse(ClaudeMessageResponse response)
-    {
-        if (response.StopReason == "end_turn")
-        {
-            return CollectAllTextContent(response);
-        }
-
-        switch (response.StopReason)
-        {
-            case "tool_use":
-                throw new NotImplementedException("Tool use response handling is not implemented yet.");
-            case "max_tokens":
-                return $"{CollectAllTextContent(response)} (truncated due to max tokens limit)";
-            case "pause_turn":
-                throw new NotImplementedException("Pause turn response handling is not implemented yet.");
-            case "refusal":
-                return $"Claude refused to answer: {CollectAllTextContent(response)}";
-            default:
-                // Handle "end_turn" and other/unknown cases
-                return response.Content.FirstOrDefault()?.Text ?? string.Empty;
-        }
-    }
-
-    public string CollectAllTextContent(ClaudeMessageResponse response)
-    {
-        return string.Concat(response.Content.Where(c => c.Type == ClaudeContentType.Text)
-            .Select(c => c.Text)
-            .Where(text => !string.IsNullOrEmpty(text)));
+        if (tools.Any())
+            {
+                compiledParameters.Tools = tools;
+            }
+        
+        return Task.FromResult<CompiledChatParameters>(compiledParameters);
     }
 }
