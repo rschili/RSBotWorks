@@ -3,6 +3,7 @@ using System.Text.Json;
 using Anthropic.SDK.Constants;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using RSBotWorks.UniversalAI;
 
 namespace Wernstrom;
 
@@ -20,13 +21,19 @@ public partial class WernstromService
         Liefere die Statusmeldungen als JSON-Array, ohne zusätzliche Erklärungen oder Formatierungen.
         """;
 
-    internal readonly OpenAIPromptExecutionSettings StatusSettings = new() // We can use the OpenAI Settings for Claude, they are compatible
+    internal PreparedChatParameters StatusParameters { get; private set; }
+
+    private PreparedChatParameters PrepareStatusParameters()
     {
-        ModelId = AnthropicModels.Claude4Sonnet,
-        FunctionChoiceBehavior = FunctionChoiceBehavior.None(),
-        MaxTokens = 1000,
-        Temperature = 0.6,
-    };
+        ChatParameters parameters = new()
+        {
+            ToolChoiceType = ToolChoiceType.None,
+            MaxTokens = 1000,
+            Temperature = 0.6m,
+            Prefill = "[\"",
+        };
+        return ChatClient.PrepareParameters(parameters);
+    }
 
     private async Task UpdateStatusAsync()
     {
@@ -37,7 +44,7 @@ public partial class WernstromService
         LastStatusUpdate = now;
         if (StatusMessages.IsEmpty)
         {
-            var newMessages = await CreateNewStatusMessages();
+            var newMessages = await CreateNewStatusMessages().ConfigureAwait(false);
             foreach (var msg in newMessages)
             {
                 StatusMessages.Enqueue(msg);
@@ -52,24 +59,21 @@ public partial class WernstromService
     internal async Task<List<string>> CreateNewStatusMessages()
     {
         List<string> statusMessages = [];
-        ChatHistory history = [];
-        history.AddDeveloperMessage(STATUS_INSTRUCTION);
-        const string prefill = "[\"";
-        history.AddAssistantMessage(prefill);
+        List<Message> history = [];
+        string systemPrompt = STATUS_INSTRUCTION;
 
         try
         {
-            var response = await ChatClient.GetChatMessageContentAsync(history, StatusSettings, Kernel);
-            if (string.IsNullOrEmpty(response.Content))
+            var response = await ChatClient.CallAsync(systemPrompt, history, StatusParameters).ConfigureAwait(false);
+            if (string.IsNullOrEmpty(response))
             {
                 Logger.LogWarning($"Got an empty response for status messages");
                 return []; // may be rate limited 
             }
 
-            var text = prefill + response.Content;
             try
             {
-                using var doc = JsonDocument.Parse(text);
+                using var doc = JsonDocument.Parse(response);
                 if (doc.RootElement.ValueKind == JsonValueKind.Array)
                 {
                     foreach (var item in doc.RootElement.EnumerateArray())
@@ -81,12 +85,12 @@ public partial class WernstromService
                 }
                 else
                 {
-                    Logger.LogWarning("Status message response was not a JSON array: {Text}", text);
+                    Logger.LogWarning("Status message response was not a JSON array: {Text}", response);
                 }
             }
             catch (Exception ex)
             {
-                Logger.LogError(ex, "Failed to parse status messages JSON: {Text}", text);
+                Logger.LogError(ex, "Failed to parse status messages JSON: {Text}", response);
             }
         }
         catch (Exception ex)

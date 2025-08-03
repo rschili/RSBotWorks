@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Data;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -80,6 +81,9 @@ public partial class WernstromService : IDisposable
         };
         // needs to be async so we prepare on first use
         DefaultParameters = ChatClient.PrepareParameters(defaultChatParameters);
+
+        ReactionParameters = PrepareReactionParameters();
+        StatusParameters = PrepareStatusParameters();
     }
 
     public async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -98,8 +102,8 @@ public partial class WernstromService : IDisposable
 
         _discordClient.Log += LogAsync;
         _discordClient.Ready += ReadyAsync;
-        await _discordClient.LoginAsync(TokenType.Bot, DiscordToken);
-        await _discordClient.StartAsync();
+        await _discordClient.LoginAsync(TokenType.Bot, DiscordToken).ConfigureAwait(false);
+        await _discordClient.StartAsync().ConfigureAwait(false);
         try
         {
             await Task.Delay(Timeout.Infinite, stoppingToken);
@@ -114,9 +118,9 @@ public partial class WernstromService : IDisposable
         }
         IsRunning = false;
         Logger.LogInformation("Logging out...");
-        await _discordClient.LogoutAsync();
+        await _discordClient.LogoutAsync().ConfigureAwait(false);
         Logger.LogInformation("Disposing client...");
-        await _discordClient.DisposeAsync();
+        await _discordClient.DisposeAsync().ConfigureAwait(false);
         _discordClient = null;
     }
 
@@ -126,7 +130,7 @@ public partial class WernstromService : IDisposable
             return;
 
         Logger.LogWarning($"Discord User {_discordClient.CurrentUser} is connected successfully!");
-        await InitializeCache();
+        await InitializeCache().ConfigureAwait(false);
 
         if (!IsRunning)
         {
@@ -136,7 +140,7 @@ public partial class WernstromService : IDisposable
 
         try
         {
-            await RegisterCommandsAsync();
+            await RegisterCommandsAsync().ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -259,7 +263,7 @@ public partial class WernstromService : IDisposable
         try
         {
             stopwatch.Restart();
-            var response = await ChatClient.CallAsync(developerMessage, history, DefaultParameters);
+            var response = await ChatClient.CallAsync(developerMessage, history, DefaultParameters).ConfigureAwait(false);
             stopwatch.Stop();
             Logger.LogDebug("It took {Seconds:F3}s to get response from AI", stopwatch.Elapsed.TotalSeconds);
 
@@ -299,7 +303,7 @@ public partial class WernstromService : IDisposable
             List<MessageContent> contents = [];
             contents.Add(MessageContent.FromText($"{prefix}{text}"));
 
-            var attachments = await ExtractImageAttachments(message);
+            var attachments = await ExtractImageAttachments(message).ConfigureAwait(false);
             if (attachments != null && attachments.Count > 0)
             {
                 foreach (var attachment in attachments)

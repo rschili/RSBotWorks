@@ -2,13 +2,10 @@ using System.Globalization;
 using Wernstrom;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Hosting;
 using RSBotWorks;
 using Microsoft.Extensions.AI;
-using Anthropic.SDK;
 using RSBotWorks.Plugins;
 using Microsoft.Extensions.Options;
-using System.Reflection.Metadata.Ecma335;
 using RSBotWorks.UniversalAI;
 using Anthropic.SDK.Constants;
 
@@ -26,7 +23,7 @@ if (!Directory.Exists(dbDirectory))
 }
 
 var services = new ServiceCollection();
-services.AddLogging(logBuilder => logBuilder.SetupLogging(config)).;
+services.AddLogging(logBuilder => logBuilder.SetupLogging(config));
 services.AddSingleton<IConfig>(config)
         .AddSingleton<LoggingHttpHandler>()
         .AddHttpClient(Options.DefaultName).AddHttpMessageHandler<LoggingHttpHandler>(); // comment the second part to disable logging
@@ -36,8 +33,20 @@ var httpClientFactory = provider.GetRequiredService<IHttpClientFactory>();
 
 using var chatClient = ChatClient.CreateAnthropicClient(AnthropicModels.Claude4Sonnet, config.ClaudeApiKey, httpClientFactory, provider.GetRequiredService<ILogger<ChatClient>>());
 
+List<LocalFunction> functions = [];
+HomeAssistantPlugin haPlugin = new(httpClientFactory, new HomeAssistantPluginConfig() { HomeAssistantToken = config.HomeAssistantToken, HomeAssistantUrl = config.HomeAssistantUrl },
+    provider.GetRequiredService<ILogger<HomeAssistantPlugin>>());
+functions.Add(LocalFunction.FromMethod(haPlugin, nameof(HomeAssistantPlugin.GetCarStatusAsync)));
+
+WeatherPlugin weatherPlugin = new(httpClientFactory, provider.GetRequiredService<ILogger<WeatherPlugin>>(),
+    new WeahterPluginConfig() { ApiKey = config.OpenWeatherMapApiKey });
+functions.AddRange(LocalFunction.FromObject(weatherPlugin));
+
+NewsPlugin newsPlugin = new(httpClientFactory, provider.GetRequiredService<ILogger<NewsPlugin>>());
+functions.AddRange(LocalFunction.FromObject(newsPlugin));
+
 using WernstromService wernstrom = new(provider.GetRequiredService<ILogger<WernstromService>>(),
-    httpClientFactory, config.DiscordToken, chatClient, null);
+    httpClientFactory, config.DiscordToken, chatClient, functions);
 
 try
 {
@@ -76,33 +85,6 @@ public static class BuilderExtensions
         builder.AddFilter(typeof(WernstromService).FullName, LogLevel.Debug);
         builder.SetMinimumLevel(LogLevel.Warning);
         builder.AddSeq(config.SeqUrl, config.SeqApiKey);
-        return builder;
-    }
-
-    public static IKernelBuilder SetupKernel(this IKernelBuilder builder, IConfig config)
-    {
-        builder.Services.AddSingleton<IChatCompletionService>(sp =>
-        {
-            var httpClientFactory = sp.GetRequiredService<IHttpClientFactory>();
-            var httpClient = httpClientFactory.CreateClient(Options.DefaultName);
-            IChatClient client = new AnthropicClient(new APIAuthentication(config.ClaudeApiKey), httpClient).Messages.AsBuilder().UseFunctionInvocation().Build();
-            var chatService = client.AsChatCompletionService();
-            return chatService;
-        });
-        builder.Services.AddSingleton(new HomeAssistantPluginConfig()
-        {
-            HomeAssistantUrl = config.HomeAssistantUrl,
-            HomeAssistantToken = config.HomeAssistantToken
-        });
-        builder.Services.AddSingleton(new WeahterPluginConfig() { ApiKey = config.OpenWeatherMapApiKey });
-
-        var plugins = builder.Plugins;
-        plugins//.AddFromType<LightsPlugin>()
-               .AddFromType<HomeAssistantPlugin>()
-               //.AddFromType<ListPluginsPlugin>()
-               .AddFromType<NewsPlugin>()
-               .AddFromType<WeatherPlugin>();
-
         return builder;
     }
 }

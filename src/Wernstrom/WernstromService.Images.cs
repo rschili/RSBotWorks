@@ -46,12 +46,12 @@ public partial class WernstromService
             }
 
             using var httpClient = HttpClientFactory.CreateClient();
-            var imageData = await httpClient.GetByteArrayAsync(attachment.Url);
+            var imageData = await httpClient.GetByteArrayAsync(attachment.Url).ConfigureAwait(false);
             bool isResized = false;
             if (attachment.Size > MaxFileSizeBytes || attachment.Height > MaxImageHeight || attachment.Width > MaxImageWidth)
             {
                 Logger.LogWarning($"Attachment {attachment.Filename} exceeds the size or dimension limits. (Size: {attachment.Size / 1024} KB, Dimensions: {attachment.Width}x{attachment.Height}) it will be resized.");
-                imageData = await ProcessImage(imageData);
+                imageData = await ProcessImage(imageData).ConfigureAwait(false);
                 mimeType = "image/jpeg"; // Assume JPEG after processing
                 isResized = true;
             }
@@ -121,12 +121,12 @@ public partial class WernstromService
                 using var resizedImage = ResizeImage(image, MaxImageWidth, MaxImageHeight);
 
                 // Save or process the resized image
-                var resizedData = await ConvertImageToJpeg(resizedImage);
+                var resizedData = await ConvertImageToJpeg(resizedImage).ConfigureAwait(false);
                 Logger.LogWarning($"Resized image to: {resizedImage.Width}x{resizedImage.Height} Size reduced from {imageData.Length / 1024} KB to {resizedData.Length / 1024} KB");
                 return resizedData;
             }
 
-            var processedData = await ConvertImageToJpeg(image);
+            var processedData = await ConvertImageToJpeg(image).ConfigureAwait(false);
             Logger.LogWarning($"Size reduced from {imageData.Length / 1024} KB to {processedData.Length / 1024} KB");
             return processedData;
         }
@@ -135,7 +135,7 @@ public partial class WernstromService
     private static async Task<byte[]> ConvertImageToJpeg(SixLabors.ImageSharp.Image image)
     {
         using var ms = new MemoryStream();
-        await image.SaveAsJpegAsync(ms, new JpegEncoder { Quality = 85 });
+        await image.SaveAsJpegAsync(ms, new JpegEncoder { Quality = 85 }).ConfigureAwait(false);
         return ms.ToArray();
     }
 

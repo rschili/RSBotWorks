@@ -1,11 +1,10 @@
 using System.Collections.Immutable;
 using System.Data;
-using Anthropic.SDK.Constants;
 using Discord;
 using Discord.WebSocket;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using RSBotWorks;
+using RSBotWorks.UniversalAI;
 using RSFlowControl;
 
 namespace Wernstrom;
@@ -19,6 +18,21 @@ public partial class WernstromService
 
     private Lazy<string> EmojiJsonList { get; set; }
 
+    internal PreparedChatParameters ReactionParameters { get; private set; }
+
+    private PreparedChatParameters PrepareReactionParameters()
+    {
+        ChatParameters parameters = new()
+        {
+            ToolChoiceType = ToolChoiceType.None,
+            MaxTokens = 50,
+            Temperature = 0.6m,
+        };
+        return ChatClient.PrepareParameters(parameters);
+    }
+
+    
+
     internal string REACTION_INSTRUCTION(string emojiList) => $"""
         {GENERIC_INSTRUCTION}
         Wähle eine passende Reaktion für die letzte Nachricht, die du erhalten hast aus der folgenden Json-Liste: {emojiList}.
@@ -26,14 +40,6 @@ public partial class WernstromService
         Bei der Auwahl der Reaktion, gib dem Inhalt der letzten Nachricht Priorität, deine Persönlichkeit soll nur eine untergeordnete Rolle spielen, da du sonst fast immer die selbe Wahl treffen würdest.
         Nachrichten anderer Nutzer in der Chathistorie enthalten den Benutzernamen als Kontext im folgenden Format vorangestellt: `[[Name]]:`.
         """;
-
-    internal readonly OpenAIPromptExecutionSettings ReactionSettings = new() // We can use the OpenAI Settings for Claude, they are compatible
-    {
-        ModelId = AnthropicModels.Claude4Sonnet,
-        FunctionChoiceBehavior = FunctionChoiceBehavior.None(),
-        MaxTokens = 50,
-        Temperature = 0.6,
-    };
 
     private Dictionary<string, IEmote> BuildEmotesDictionary()
     {
@@ -170,8 +176,9 @@ public partial class WernstromService
             return;
 
         var liveHistory = await arg.Channel.GetMessagesAsync(arg, Direction.Before, 3, CacheMode.AllowDownload).FlattenAsync().ConfigureAwait(false);
-        ChatHistory history = [];
-        history.AddDeveloperMessage(REACTION_INSTRUCTION(EmojiJsonList.Value));
+
+        List<Message> history = new();
+        string systemPrompt = REACTION_INSTRUCTION(EmojiJsonList.Value);
         foreach (var message in liveHistory)
         {
             await AddMessageToHistory(history, message, cachedChannel).ConfigureAwait(false);
@@ -180,20 +187,20 @@ public partial class WernstromService
 
         try
         {
-            var reaction = await ChatClient.GetChatMessageContentAsync(history, Settings, Kernel);
-            if (string.IsNullOrEmpty(reaction.Content))
+            var reaction = await ChatClient.CallAsync(systemPrompt, history, ReactionParameters).ConfigureAwait(false);
+            if (string.IsNullOrEmpty(reaction))
             {
                 Logger.LogWarning("AI did not return a reaction for the message: {Message}", arg.Content.Substring(0, Math.Min(arg.Content.Length, 100)));
                 return; // may be rate limited 
             }
-            if (Emotes.Value.TryGetValue(reaction.Content, out var guildEmote))
+            if (Emotes.Value.TryGetValue(reaction, out var guildEmote))
             {
                 await arg.AddReactionAsync(guildEmote).ConfigureAwait(false);
                 return;
             }
 
             // Try to add as unicode emoji
-            if (!Emoji.TryParse(reaction.Content, out var emoji))
+            if (!Emoji.TryParse(reaction, out var emoji))
             {
                 Logger.LogWarning("Could not parse emoji from reaction: {Reaction}", reaction);
                 return;

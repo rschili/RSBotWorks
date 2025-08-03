@@ -31,7 +31,7 @@ public class LocalFunction
         return _handler(parameters);
     }
 
-    public static IEnumerable<LocalFunction> FromType<T>(T instance)
+    public static IEnumerable<LocalFunction> FromObject<T>(T instance)
     {
         var methods = typeof(T).GetMethods()
             .Where(m => m.GetCustomAttribute<LocalFunctionAttribute>() != null);
