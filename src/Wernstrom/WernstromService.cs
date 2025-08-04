@@ -84,6 +84,7 @@ public partial class WernstromService : IDisposable
 
         ReactionParameters = PrepareReactionParameters();
         StatusParameters = PrepareStatusParameters();
+        LeetParameters = PrepareLeetParameters();
     }
 
     public async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -104,9 +105,15 @@ public partial class WernstromService : IDisposable
         _discordClient.Ready += ReadyAsync;
         await _discordClient.LoginAsync(TokenType.Bot, DiscordToken).ConfigureAwait(false);
         await _discordClient.StartAsync().ConfigureAwait(false);
+        
+        // Register default operations
+        RegisterDailyOperation(new TimeOnly(13, 36), PerformLeetTimeOperation);
+        RegisterDailyOperation(new TimeOnly(20, 0), PerformEveningOperation);
+
         try
         {
-            await Task.Delay(Timeout.Infinite, stoppingToken);
+            // await Task.Delay(Timeout.Infinite, stoppingToken);
+            await DailySchedulerLoop(stoppingToken);
         }
         catch (TaskCanceledException)
         {
@@ -116,6 +123,7 @@ public partial class WernstromService : IDisposable
         {
             Logger.LogError(ex, "An error occurred. Shutting down...");
         }
+
         IsRunning = false;
         Logger.LogInformation("Logging out...");
         await _discordClient.LogoutAsync().ConfigureAwait(false);

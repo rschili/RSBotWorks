@@ -18,7 +18,7 @@ public partial class WernstromService
 
     private Lazy<string> EmojiJsonList { get; set; }
 
-    internal PreparedChatParameters ReactionParameters { get; private set; }
+    internal PreparedChatParameters ReactionParameters { get; init; }
 
     private PreparedChatParameters PrepareReactionParameters()
     {
