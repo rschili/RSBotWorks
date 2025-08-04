@@ -165,11 +165,11 @@ public class ToolTests
         
         var homeAssistantPlugin = new HomeAssistantPlugin(httpClientFactory, new HomeAssistantPluginConfig() { HomeAssistantUrl = url, HomeAssistantToken = token }, NullLogger<HomeAssistantPlugin>.Instance);
         var functions = LocalFunction.FromObject(homeAssistantPlugin);
-        var cupraFunction = functions.FirstOrDefault(f => f.Name == "get_cupra_info");
+        var cupraFunction = functions.FirstOrDefault(f => f.Name == "car_status");
         
         if (cupraFunction == null)
         {
-            Assert.Fail("get_cupra_info function not found");
+            Assert.Fail("car_status function not found");
             return;
         }
 
@@ -179,6 +179,83 @@ public class ToolTests
         var logger = TestContext.Current?.GetDefaultLogger();
         if (logger != null)
             await logger.LogInformationAsync($"Response for Cupra Info: {response}");
+    }
+
+    [Test, Explicit]
+    public async Task ObtainHealthData()
+    {
+        var env = DotNetEnv.Env.NoEnvVars().TraversePath().Load().ToDotEnvDictionary();
+
+        string url = env["HA_API_URL"];
+        if (string.IsNullOrEmpty(url))
+        {
+            Assert.Fail("HA_API_URL is not set in the .env file.");
+            return;
+        }
+        string token = env["HA_TOKEN"];
+        if (string.IsNullOrEmpty(token))
+        {
+            Assert.Fail("HA_TOKEN is not set in the .env file.");
+            return;
+        }
+
+        var httpClientFactory = Substitute.For<IHttpClientFactory>();
+        httpClientFactory.CreateClient(Arg.Any<string>()).Returns(_ => new HttpClient());
+        
+        var homeAssistantPlugin = new HomeAssistantPlugin(httpClientFactory, new HomeAssistantPluginConfig() { HomeAssistantUrl = url, HomeAssistantToken = token }, NullLogger<HomeAssistantPlugin>.Instance);
+        var functions = LocalFunction.FromObject(homeAssistantPlugin);
+        var stepsFunction = functions.FirstOrDefault(f => f.Name == "health_info");
+        
+        if (stepsFunction == null)
+        {
+            Assert.Fail("health_info function not found");
+            return;
+        }
+
+        using var args = JsonDocument.Parse("""{}""");
+        var response = await stepsFunction.ExecuteAsync(args).ConfigureAwait(false);
+        await Assert.That(response).IsNotNullOrEmpty();
+        var logger = TestContext.Current?.GetDefaultLogger();
+        if (logger != null)
+            await logger.LogInformationAsync($"Response for Health Data: {response}");
+    }
+
+    [Test, Explicit]
+    public async Task ObtainRawHealthData()
+    {
+        var env = DotNetEnv.Env.NoEnvVars().TraversePath().Load().ToDotEnvDictionary();
+
+        string url = env["HA_API_URL"];
+        if (string.IsNullOrEmpty(url))
+        {
+            Assert.Fail("HA_API_URL is not set in the .env file.");
+            return;
+        }
+        string token = env["HA_TOKEN"];
+        if (string.IsNullOrEmpty(token))
+        {
+            Assert.Fail("HA_TOKEN is not set in the .env file.");
+            return;
+        }
+
+        var httpClientFactory = Substitute.For<IHttpClientFactory>();
+        httpClientFactory.CreateClient(Arg.Any<string>()).Returns(_ => new HttpClient());
+
+        var homeAssistantPlugin = new HomeAssistantPlugin(httpClientFactory, new HomeAssistantPluginConfig() { HomeAssistantUrl = url, HomeAssistantToken = token }, NullLogger<HomeAssistantPlugin>.Instance);
+        
+        var healthData = await homeAssistantPlugin.GetRawHealthDataAsync().ConfigureAwait(false);
+        
+        await Assert.That(healthData).IsNotNull();
+        await Assert.That(healthData.Steps).IsGreaterThanOrEqualTo(0);
+        await Assert.That(healthData.WalkingDistance).IsGreaterThanOrEqualTo(0.0);
+        await Assert.That(healthData.RestingHeartRate).IsGreaterThanOrEqualTo(0);
+        await Assert.That(healthData.StandingHours).IsGreaterThanOrEqualTo(0);
+        
+        var logger = TestContext.Current?.GetDefaultLogger();
+        if (logger != null)
+        {
+            await logger.LogInformationAsync($"Raw Health Data - Steps: {healthData.Steps}, Distance: {healthData.WalkingDistance:F1}km, Heart Rate: {healthData.RestingHeartRate}bpm, Standing Hours: {healthData.StandingHours}, Last Updated: {healthData.LastUpdated}");
+        }
     }
 
     [Test, Explicit]

@@ -37,6 +37,7 @@ List<LocalFunction> functions = [];
 HomeAssistantPlugin haPlugin = new(httpClientFactory, new HomeAssistantPluginConfig() { HomeAssistantToken = config.HomeAssistantToken, HomeAssistantUrl = config.HomeAssistantUrl },
     provider.GetRequiredService<ILogger<HomeAssistantPlugin>>());
 functions.Add(LocalFunction.FromMethod(haPlugin, nameof(HomeAssistantPlugin.GetCarStatusAsync)));
+functions.Add(LocalFunction.FromMethod(haPlugin, nameof(HomeAssistantPlugin.GetHealthInfoAsync)));
 
 WeatherPlugin weatherPlugin = new(httpClientFactory, provider.GetRequiredService<ILogger<WeatherPlugin>>(),
     new WeahterPluginConfig() { ApiKey = config.OpenWeatherMapApiKey });
@@ -47,6 +48,7 @@ functions.AddRange(LocalFunction.FromObject(newsPlugin));
 
 using WernstromService wernstrom = new(provider.GetRequiredService<ILogger<WernstromService>>(),
     httpClientFactory, config.DiscordToken, chatClient, functions);
+wernstrom.HAPlugin = haPlugin;
 
 try
 {

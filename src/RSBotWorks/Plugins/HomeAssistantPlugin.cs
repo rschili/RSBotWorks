@@ -7,6 +7,14 @@ using RSBotWorks.UniversalAI;
 
 namespace RSBotWorks.Plugins;
 
+public record HealthData(
+    int Steps,
+    double WalkingDistance,
+    int RestingHeartRate,
+    int StandingHours,
+    DateTimeOffset LastUpdated
+);
+
 public interface IHomeAssistantPluginConfig
 {
     string HomeAssistantUrl { get; }
@@ -38,7 +46,7 @@ public class HomeAssistantPlugin
     }
 
     [LocalFunction("car_status")]
-    [Description("Get current status of the EV car of the user krael aka noppel (charge, range, doors, etc.)")]
+    [Description("Get current status of the electric car of user krael/noppel")]
     public async Task<string> GetCarStatusAsync()
     {
         if (_cupraCache.TryGet(out var cachedValue) && !string.IsNullOrEmpty(cachedValue))
@@ -75,5 +83,55 @@ public class HomeAssistantPlugin
 
         _cupraCache.Set(result);
         return result;
+    }
+
+    [LocalFunction("health_info")]
+    [Description("Get today's health info (steps, walked distance, resting heartrate, standing hours) for user krael/noppel")]
+    public async Task<string> GetHealthInfoAsync()
+    {
+        var healthData = await GetRawHealthDataAsync();
+        
+        var result = $"""
+            Schritte: {healthData.Steps:N0}.
+            Gelaufene Distanz: {healthData.WalkingDistance:F1} km.
+            Ruhepuls: {healthData.RestingHeartRate} bpm.
+            Stehstunden: {healthData.StandingHours}/12.
+            Letztes Update: {healthData.LastUpdated.ToRelativeToNowLabel()}.
+            """;
+
+        return result;
+    }
+
+    public async Task<HealthData> GetRawHealthDataAsync()
+    {
+        const string standingHoursEntity = "hae.homeassistantexport_apple_stand_hour";
+        const string restingHeartRateEntity = "hae.homeassistantexport_resting_heart_rate";
+        const string stepsEntity = "hae.homeassistantexport_step_count";
+        const string distanceEntity = "hae.homeassistantexport_walking_running_distance";
+
+        if (!ClientFactory.IsInitialized)
+        {
+            Logger.LogInformation("Initializing Home Assistant client.");
+            ClientFactory.Initialize(Config.HomeAssistantUrl, Config.HomeAssistantToken);
+        }
+
+        var statesClient = ClientFactory.GetClient<StatesClient>();
+
+        var stepsState = await statesClient.GetState(stepsEntity);
+        var distanceState = await statesClient.GetState(distanceEntity);
+        var restingHeartRateState = await statesClient.GetState(restingHeartRateEntity);
+        var standingHoursState = await statesClient.GetState(standingHoursEntity);
+
+        // Find the latest update time from all states
+        var latestUpdate = new[] { stepsState.LastUpdated, distanceState.LastUpdated, restingHeartRateState.LastUpdated, standingHoursState.LastUpdated }
+            .Max();
+
+        return new HealthData(
+            Steps: int.TryParse(stepsState.State, out var steps) ? steps : 0,
+            WalkingDistance: double.TryParse(distanceState.State, out var distance) ? distance : 0.0,
+            RestingHeartRate: int.TryParse(restingHeartRateState.State, out var heartRate) ? heartRate : 0,
+            StandingHours: int.TryParse(standingHoursState.State, out var standingHours) ? standingHours : 0,
+            LastUpdated: latestUpdate
+        );
     }
 }

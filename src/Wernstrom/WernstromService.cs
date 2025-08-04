@@ -9,6 +9,7 @@ using Discord;
 using Discord.WebSocket;
 using Microsoft.Extensions.Logging;
 using RSBotWorks;
+using RSBotWorks.Plugins;
 using RSBotWorks.UniversalAI;
 
 namespace Wernstrom;
