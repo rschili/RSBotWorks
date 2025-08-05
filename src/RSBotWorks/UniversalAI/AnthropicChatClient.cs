@@ -23,17 +23,20 @@ internal class AnthropicChatClient : TypedChatClient<AnthropicClient>
     }
 
 
-    public override async Task<string> CallAsync(string systemPrompt, IList<Message> inputs, PreparedChatParameters parameters)
+    public override async Task<string> CallAsync(string? systemPrompt, IList<Message> inputs, PreparedChatParameters parameters)
     {
         if (parameters is not AnthropicChatParameters anthropicParameters)
         {
             throw new ArgumentException("Parameters must be of type AnthropicChatParameters", nameof(parameters));
         }
+        if(inputs == null || inputs.Count == 0)
+        {
+            throw new ArgumentException("Inputs cannot be null or empty", nameof(inputs));
+        }
         try
         {
             var message = new MessageParameters()
             {
-                System = [new SystemMessage(systemPrompt)],
                 Messages = inputs.Select(InputToMessage).ToList(),
                 MaxTokens = parameters.OriginalParameters.MaxTokens,
                 Model = ModelName,
@@ -43,6 +46,11 @@ internal class AnthropicChatClient : TypedChatClient<AnthropicClient>
                 TopP = parameters.OriginalParameters.TopP,
                 Tools = anthropicParameters.Tools,
             };
+
+            if (!string.IsNullOrEmpty(systemPrompt))
+            {
+                message.System = new List<SystemMessage> { new SystemMessage(systemPrompt) };
+            }
 
             if (anthropicParameters.Tools != null && anthropicParameters.Tools.Any() && parameters.OriginalParameters.ToolChoiceType == ToolChoiceType.Auto)
             {
@@ -61,7 +69,7 @@ internal class AnthropicChatClient : TypedChatClient<AnthropicClient>
         catch (Exception ex)
         {
             Logger.LogError(ex, "Error while calling Anthropic API");
-            return "An error occurred while processing your request.";
+            throw;
         }
     }
 

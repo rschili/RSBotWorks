@@ -173,7 +173,7 @@ public partial class WernstromService
             Logger.LogWarning("Attempted to perform 1337 time operation while service is not running.");
             return;
         }
-        var response = await ChatClient.CallAsync(LEET_INSTRUCTION, [], LeetParameters).ConfigureAwait(false);
+        var response = await ChatClient.CallAsync(null, [Message.FromText(Role.User, LEET_INSTRUCTION)], LeetParameters).ConfigureAwait(false);
         if (string.IsNullOrEmpty(response))
         {
             Logger.LogWarning("Got an empty response for 1337 time operation");
@@ -274,7 +274,6 @@ public partial class WernstromService
             await AddMessageToHistory(history, message, cachedChannel).ConfigureAwait(false);
 
         var response = await ChatClient.CallAsync(prompt, history, LeetParameters).ConfigureAwait(false);
-
 
         if (string.IsNullOrEmpty(response))
         {

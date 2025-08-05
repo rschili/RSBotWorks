@@ -26,7 +26,7 @@ internal class OpenAIChatClient : TypedChatClient<OpenAI.Chat.ChatClient>
     {
     }
 
-    public override async Task<string> CallAsync(string systemPrompt, IList<Message> inputs, PreparedChatParameters parameters)
+    public override async Task<string> CallAsync(string? systemPrompt, IList<Message> inputs, PreparedChatParameters parameters)
     {
         if (parameters is not OpenAIChatParameters openAIParameters)
         {
@@ -35,10 +35,11 @@ internal class OpenAIChatClient : TypedChatClient<OpenAI.Chat.ChatClient>
 
         try
         {
-            var messages = new List<ChatMessage>
+            var messages = new List<ChatMessage>();
+            if(!string.IsNullOrEmpty(systemPrompt))
             {
-                new SystemChatMessage(systemPrompt)
-            };
+                messages.Add(new SystemChatMessage(systemPrompt));
+            }
 
             // Convert input messages to OpenAI format
             foreach (var input in inputs)

@@ -32,7 +32,7 @@ public abstract class ChatClient : IDisposable
 
     public abstract void Dispose();
 
-    public abstract Task<string> CallAsync(string systemPrompt, IList<Message> inputs, PreparedChatParameters parameters);
+    public abstract Task<string> CallAsync(string? systemPrompt, IList<Message> inputs, PreparedChatParameters parameters);
 
     public abstract PreparedChatParameters PrepareParameters(ChatParameters parameters);
 }
