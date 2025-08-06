@@ -109,7 +109,6 @@ public partial class WernstromService : IDisposable
         
         // Register default operations
         RegisterDailyOperation(new TimeOnly(13, 36), PerformLeetTimeOperation);
-        RegisterDailyOperation(new TimeOnly(20, 0), PerformEveningOperation);
 
         try
         {

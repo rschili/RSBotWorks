@@ -48,7 +48,6 @@ functions.AddRange(LocalFunction.FromObject(newsPlugin));
 
 using WernstromService wernstrom = new(provider.GetRequiredService<ILogger<WernstromService>>(),
     httpClientFactory, config.DiscordToken, chatClient, functions);
-wernstrom.HAPlugin = haPlugin;
 
 try
 {
