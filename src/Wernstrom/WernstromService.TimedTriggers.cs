@@ -152,6 +152,7 @@ public partial class WernstromService
         In dem Chat wird täglich um 13:37 Uhr ein traditionelles Spiel gespielt, bei dem jeder Nutzer eine Nachricht schickt.
         Ein Bot misst die Zeit der Nachrichten, und wer am nähesten an 13:37 Uhr ist, gewinnt.
         Du nimmst an dem Spiel teil, generiere eine sehr kurze Nachricht, die um 13:37 Uhr gesendet wird.
+        Liefere nur die Nachricht direkt, ohne Prefixe, Überschriften oder Erklärungen.
         """;
 
     internal PreparedChatParameters LeetParameters { get; init; }
@@ -192,7 +193,7 @@ public partial class WernstromService
         var target1337 = cestNow.Date.AddHours(13).AddMinutes(37); // Today's 13:37:00 CEST
         
         var remainingTime = target1337 - cestNow;
-        int preFireMS = DiscordClient.Latency / 2; // Half the roundtrip latency to account for network delay
+        int preFireMS = DiscordClient.Latency; // Account for network delay
         var waitTime = remainingTime.Subtract(TimeSpan.FromMilliseconds(preFireMS));
         
         if (waitTime > TimeSpan.Zero)
