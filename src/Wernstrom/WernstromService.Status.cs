@@ -59,8 +59,8 @@ public partial class WernstromService
     internal async Task<List<string>> CreateNewStatusMessages()
     {
         List<string> statusMessages = [];
-        List<Message> history = [];
-        string systemPrompt = STATUS_INSTRUCTION;
+        List<Message> history = [Message.FromText(Role.User, STATUS_INSTRUCTION)];
+        string? systemPrompt = null;
 
         try
         {
