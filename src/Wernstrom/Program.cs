@@ -31,7 +31,9 @@ using var provider = services.BuildServiceProvider();
 
 var httpClientFactory = provider.GetRequiredService<IHttpClientFactory>();
 
-using var chatClient = ChatClient.CreateAnthropicClient(AnthropicModels.Claude4Sonnet, config.ClaudeApiKey, httpClientFactory, provider.GetRequiredService<ILogger<ChatClient>>());
+//using var chatClient = ChatClient.CreateAnthropicClient(AnthropicModels.Claude4Sonnet, config.ClaudeApiKey, httpClientFactory, provider.GetRequiredService<ILogger<ChatClient>>());
+using var chatClient = ChatClient.CreateOpenAIResponsesClient(OpenAIModel.GPT5, config.OpenAiApiKey, provider.GetRequiredService<ILogger<ChatClient>>());
+//using var chatClient = ChatClient.CreateOpenAIClient(OpenAIModel.GPT5Chat, config.OpenAiApiKey, provider.GetRequiredService<ILogger<ChatClient>>());
 
 List<LocalFunction> functions = [];
 HomeAssistantPlugin haPlugin = new(httpClientFactory, new HomeAssistantPluginConfig() { HomeAssistantToken = config.HomeAssistantToken, HomeAssistantUrl = config.HomeAssistantUrl },

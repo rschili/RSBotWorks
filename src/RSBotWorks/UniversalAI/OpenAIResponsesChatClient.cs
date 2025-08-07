@@ -2,45 +2,35 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.Extensions.Logging;
-using OpenAI.Chat;
+using OpenAI.Responses;
 
 namespace RSBotWorks.UniversalAI;
 
-public static class OpenAIModel
+internal class OpenAIResponsesParameters : PreparedChatParameters
 {
-    public const string GPT4o = "gpt-4o";
-    public const string GPT41 = "gpt-4.1";
-    public const string O1 = "o1";
-    public const string O3Mini = "o3-mini";
-    public const string GPT5Chat = "gpt-5-chat-latest";
-    public const string GPT5 = "gpt-5";
+    public required ResponseCreationOptions Options { get; internal set; }
 }
 
-internal class OpenAIChatParameters : PreparedChatParameters
+internal class OpenAIResponsesChatClient : TypedChatClient<OpenAIResponseClient>
 {
-    public required ChatCompletionOptions Options { get; internal set; }
-}
-
-internal class OpenAIChatClient : TypedChatClient<OpenAI.Chat.ChatClient>
-{
-    public OpenAIChatClient(string modelName, OpenAI.Chat.ChatClient innerClient, ILogger? logger = null)
+    public OpenAIResponsesChatClient(string modelName, OpenAIResponseClient innerClient, ILogger? logger = null)
         : base(modelName, innerClient, logger)
     {
     }
 
     public override async Task<string> CallAsync(string? systemPrompt, IList<Message> inputs, PreparedChatParameters parameters)
     {
-        if (parameters is not OpenAIChatParameters openAIParameters)
+        if (parameters is not OpenAIResponsesParameters openAIParameters)
         {
             throw new ArgumentException("Parameters must be of type OpenAIChatParameters", nameof(parameters));
         }
 
         try
         {
-            var messages = new List<ChatMessage>();
+            var messages = new List<ResponseItem>();
             if(!string.IsNullOrEmpty(systemPrompt))
             {
-                messages.Add(new SystemChatMessage(systemPrompt));
+                messages.Add(ResponseItem.CreateDeveloperMessageItem(systemPrompt));
             }
 
             // Convert input messages to OpenAI format
@@ -52,7 +42,7 @@ internal class OpenAIChatClient : TypedChatClient<OpenAI.Chat.ChatClient>
             // Add prefill if specified
             if (parameters.OriginalParameters.Prefill != null)
             {
-                messages.Add(new AssistantChatMessage(parameters.OriginalParameters.Prefill));
+                messages.Add(ResponseItem.CreateAssistantMessageItem(parameters.OriginalParameters.Prefill));
             }
 
             return await LoopToCompletion(messages, openAIParameters);
@@ -66,16 +56,23 @@ internal class OpenAIChatClient : TypedChatClient<OpenAI.Chat.ChatClient>
 
     public override PreparedChatParameters PrepareParameters(ChatParameters parameters)
     {
-        ChatCompletionOptions options = new()
+        ResponseCreationOptions options = new()
         {
             MaxOutputTokenCount = 1000,
             StoredOutputEnabled = false,
-            ResponseFormat = ChatResponseFormat.CreateTextFormat(),
+            ReasoningOptions = new ResponseReasoningOptions
+            {
+                ReasoningEffortLevel = ResponseReasoningEffortLevel.Low,
+            },
+            TextOptions = new ResponseTextOptions
+            {
+                TextFormat = ResponseTextFormat.CreateTextFormat(),
+            },
         };
 
         if (parameters.EnableWebSearch)
         {
-            options.WebSearchOptions = new();
+            options.Tools.Add(ResponseTool.CreateWebSearchTool());
         }
 
         if (parameters.AvailableLocalFunctions != null && parameters.AvailableLocalFunctions.Count > 0)
@@ -84,19 +81,19 @@ internal class OpenAIChatClient : TypedChatClient<OpenAI.Chat.ChatClient>
             {
                 options.Tools.Add(tool);
             }
-            options.ToolChoice = parameters.ToolChoiceType == ToolChoiceType.Auto ? ChatToolChoice.CreateAutoChoice() : ChatToolChoice.CreateNoneChoice();
+            options.ToolChoice = parameters.ToolChoiceType == ToolChoiceType.Auto ? ResponseToolChoice.CreateAutoChoice() : ResponseToolChoice.CreateNoneChoice();
         }
         
-        return new OpenAIChatParameters
+        return new OpenAIResponsesParameters
         {
             Options = options,
             OriginalParameters = parameters
         };
     }
 
-    private static List<ChatTool> GenerateOpenAITools(IEnumerable<LocalFunction> functions)
+    private static List<ResponseTool> GenerateOpenAITools(IEnumerable<LocalFunction> functions)
     {
-        var oaiTools = new List<ChatTool>();
+        var oaiTools = new List<ResponseTool>();
 
         foreach (var localFunction in functions)
         {
@@ -129,7 +126,7 @@ internal class OpenAIChatClient : TypedChatClient<OpenAI.Chat.ChatClient>
                 WriteIndented = false
             }) : "{}";
 
-            var responseTool = ChatTool.CreateFunctionTool(
+            var responseTool = ResponseTool.CreateFunctionTool(
                 functionName: localFunction.Name,
                 functionDescription: localFunction.Description,
                 functionParameters: BinaryData.FromString(schemaJson)
@@ -141,7 +138,7 @@ internal class OpenAIChatClient : TypedChatClient<OpenAI.Chat.ChatClient>
         return oaiTools;
     }
 
-    private async Task<string> LoopToCompletion(List<ChatMessage> messages, OpenAIChatParameters parameters)
+    private async Task<string> LoopToCompletion(List<ResponseItem> messages, OpenAIResponsesParameters parameters)
     {
         int responses = 1;
         int toolCalls = 0;
@@ -160,25 +157,41 @@ internal class OpenAIChatClient : TypedChatClient<OpenAI.Chat.ChatClient>
                 break; // Prevent infinite loops
             }
 
-            var completion = await InnerClient.CompleteChatAsync(messages, parameters.Options);
+            var completion = await InnerClient.CreateResponseAsync(messages, parameters.Options);
+            var response = completion.Value;
             responses++;
-            
-            var responseMessage = completion.Value.Content.FirstOrDefault();
-            if (responseMessage?.Text != null)
+
+            List<FunctionCallResponseItem> toolCallsInResponse = [];
+            foreach (ResponseItem item in response.OutputItems)
             {
-                result.Append(responseMessage.Text);
-                messages.Add(new AssistantChatMessage(responseMessage.Text));
+                if (item is WebSearchCallResponseItem webSearchCall)
+                {
+                    toolCalls++;
+                    messages.Add(item);
+                }
+                else if (item is FunctionCallResponseItem toolCall)
+                {
+                    toolCalls++;
+                    toolCallsInResponse.Add(toolCall);
+                    messages.Add(item);
+                }
+                else if (item is MessageResponseItem message)
+                {
+                    messages.Add(item);
+                }
+            }
+
+            var textContents = response.GetOutputText();
+            if (!string.IsNullOrEmpty(textContents))
+            {
+                result.Append(textContents);
             }
 
             // Handle tool calls
-            var toolCallsInResponse = completion.Value.ToolCalls;
-            if (toolCallsInResponse == null || toolCallsInResponse.Count == 0)
+            if (toolCallsInResponse.Count == 0)
             {
                 break; // No tool calls, we can exit the loop
             }
-
-            // Add assistant message with tool calls
-            messages.Add(new AssistantChatMessage(toolCallsInResponse));
 
             foreach (var toolCall in toolCallsInResponse)
             {
@@ -186,7 +199,7 @@ internal class OpenAIChatClient : TypedChatClient<OpenAI.Chat.ChatClient>
                 if (nativeTool == null)
                 {
                     Logger?.LogWarning("Tool call '{ToolName}' not found in available local functions.", toolCall.FunctionName);
-                    messages.Add(new ToolChatMessage(toolCall.Id, $"Could not find tool with name {toolCall.FunctionName}"));
+                    messages.Add(ResponseItem.CreateFunctionCallOutputItem(toolCall.CallId, $"Could not find tool with name {toolCall.FunctionName}"));
                     continue;
                 }
 
@@ -194,13 +207,13 @@ internal class OpenAIChatClient : TypedChatClient<OpenAI.Chat.ChatClient>
                 {
                     using var argumentsDoc = JsonDocument.Parse(toolCall.FunctionArguments);
                     var toolResponse = await nativeTool.ExecuteAsync(argumentsDoc);
-                    messages.Add(new ToolChatMessage(toolCall.Id, toolResponse));
+                    messages.Add(ResponseItem.CreateFunctionCallOutputItem(toolCall.CallId, toolResponse));
                     toolCalls++;
                 }
                 catch (Exception ex)
                 {
                     Logger?.LogError(ex, "Error executing tool call '{ToolName}'", toolCall.FunctionName);
-                    messages.Add(new ToolChatMessage(toolCall.Id, $"Error executing tool: {ex.Message}"));
+                    messages.Add(ResponseItem.CreateFunctionCallOutputItem(toolCall.CallId, $"Error executing tool: {ex.Message}"));
                 }
             }
         }
@@ -211,31 +224,30 @@ internal class OpenAIChatClient : TypedChatClient<OpenAI.Chat.ChatClient>
         return result.ToString();
     }
 
-    private ChatMessage InputToMessage(Message message)
+    private ResponseItem InputToMessage(Message message)
     {
         return message.Role switch
         {
             Role.User => CreateUserMessage(message),
-            Role.Assistant => new AssistantChatMessage(GetTextContent(message)),
+            Role.Assistant => ResponseItem.CreateAssistantMessageItem(GetTextContent(message)),
             _ => throw new ArgumentOutOfRangeException(nameof(message.Role), "Unknown role in message")
         };
     }
 
-    private ChatMessage CreateUserMessage(Message message)
+    private ResponseItem CreateUserMessage(Message message)
     {
-        var contentParts = new List<ChatMessageContentPart>();
+        var contentParts = new List<ResponseContentPart>();
 
         foreach (var content in message.Content)
         {
             switch (content)
             {
                 case TextContent textContent:
-                    contentParts.Add(ChatMessageContentPart.CreateTextPart(textContent.Text));
+                    contentParts.Add(ResponseContentPart.CreateInputTextPart(textContent.Text));
                     break;
                 case ImageContent imageContent:
                     var imageBytes = imageContent.Data.ToArray();
-                    contentParts.Add(ChatMessageContentPart.CreateImagePart(
-                        BinaryData.FromBytes(imageBytes), 
+                    contentParts.Add(ResponseContentPart.CreateInputImagePart(BinaryData.FromBytes(imageBytes), 
                         imageContent.MimeType));
                     break;
                 default:
@@ -243,7 +255,7 @@ internal class OpenAIChatClient : TypedChatClient<OpenAI.Chat.ChatClient>
             }
         }
 
-        return new UserChatMessage(contentParts);
+        return ResponseItem.CreateUserMessageItem(contentParts);
     }
 
     private string GetTextContent(Message message)

@@ -24,6 +24,12 @@ public abstract class ChatClient : IDisposable
         return new OpenAIChatClient(modelName, innerClient, logger);
     }
 
+    public static ChatClient CreateOpenAIResponsesClient(string modelName, string apiKey, ILogger? logger = null)
+    {
+        var innerClient = new OpenAI.Responses.OpenAIResponseClient(modelName, apiKey);
+        return new OpenAIResponsesChatClient(modelName, innerClient, logger);
+    }
+
     public static ChatClient CreateAnthropicClient(string modelName, string apiKey, IHttpClientFactory? httpClientFactory = null, ILogger? logger = null)
     {
         var innerClient = new AnthropicClient(new APIAuthentication(apiKey), httpClientFactory != null ? httpClientFactory.CreateClient() : null);
