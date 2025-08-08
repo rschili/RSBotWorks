@@ -26,7 +26,7 @@ using var serviceProvider = services.BuildServiceProvider();
 
 var httpClientFactory = serviceProvider.GetRequiredService<IHttpClientFactory>();
 
-using var chatClient = ChatClient.CreateOpenAIClient(OpenAIModel.GPT41, config.OpenAiApiKey, serviceProvider.GetRequiredService<ILogger<ChatClient>>());
+using var chatClient = ChatClient.CreateOpenAIResponsesClient(OpenAIModel.GPT5, config.OpenAiApiKey, serviceProvider.GetRequiredService<ILogger<ChatClient>>());
 
 List<LocalFunction> functions = [];
 HomeAssistantPlugin haPlugin = new(httpClientFactory, new HomeAssistantPluginConfig() { HomeAssistantToken = config.HomeAssistantToken, HomeAssistantUrl = config.HomeAssistantUrl },
