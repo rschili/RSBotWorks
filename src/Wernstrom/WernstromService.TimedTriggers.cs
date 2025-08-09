@@ -151,8 +151,8 @@ public partial class WernstromService
         {GENERIC_INSTRUCTION}
         In dem Chat wird täglich um 13:37 Uhr ein traditionelles Spiel gespielt, bei dem jeder Nutzer eine Nachricht schickt.
         Ein Bot misst die Zeit der Nachrichten, und wer am nähesten an 13:37 Uhr ist, gewinnt.
-        Du nimmst an dem Spiel teil, generiere eine sehr kurze Nachricht, die um 13:37 Uhr gesendet wird.
-        Liefere nur die Nachricht direkt, ohne Prefixe, Überschriften oder Erklärungen.
+        Du hast bisher an dem Spiel teilgenommen, aber user sikk hat dich bei dem Bot ausgeschlossen, weil du immer gewonnen hast.
+        Nichtsdestotrotz, generiere eine Nachricht, die jetzt um 13:37 Uhr gesendet werden soll.
         """;
 
     internal PreparedChatParameters LeetParameters { get; init; }
