@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using RSBotWorks;
 using RSBotWorks.UniversalAI;
 using RSBotWorks.Plugins;
+using Anthropic.SDK.Constants;
 
 Console.WriteLine($"Current user: {Environment.UserName}");
 Console.WriteLine("Loading config...");
@@ -26,7 +27,8 @@ using var serviceProvider = services.BuildServiceProvider();
 
 var httpClientFactory = serviceProvider.GetRequiredService<IHttpClientFactory>();
 
-using var chatClient = ChatClient.CreateOpenAIResponsesClient(OpenAIModel.GPT5, config.OpenAiApiKey, serviceProvider.GetRequiredService<ILogger<ChatClient>>());
+using var chatClient = ChatClient.CreateAnthropicClient(AnthropicModels.Claude4Sonnet, config.ClaudeApiKey, httpClientFactory, serviceProvider.GetRequiredService<ILogger<ChatClient>>());
+//using var chatClient = ChatClient.CreateOpenAIResponsesClient(OpenAIModel.GPT5, config.OpenAiApiKey, serviceProvider.GetRequiredService<ILogger<ChatClient>>());
 
 List<LocalFunction> functions = [];
 HomeAssistantPlugin haPlugin = new(httpClientFactory, new HomeAssistantPluginConfig() { HomeAssistantToken = config.HomeAssistantToken, HomeAssistantUrl = config.HomeAssistantUrl },
