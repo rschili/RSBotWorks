@@ -42,6 +42,9 @@ functions.AddRange(LocalFunction.FromObject(weatherPlugin));
 NewsPlugin newsPlugin = new(httpClientFactory, serviceProvider.GetRequiredService<ILogger<NewsPlugin>>());
 functions.AddRange(LocalFunction.FromObject(newsPlugin));
 
+FortunePlugin fortunePlugin = new();
+functions.AddRange(LocalFunction.FromObject(fortunePlugin));
+
 StollService stoll = new(serviceProvider.GetRequiredService<ILogger<StollService>>(),
     config.MatrixUserId, config.MatrixPassword, httpClientFactory, chatClient, functions);
 
