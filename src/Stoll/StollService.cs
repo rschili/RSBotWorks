@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
@@ -7,6 +8,13 @@ using RSMatrix;
 using RSMatrix.Models;
 
 namespace Stoll;
+
+public record MessageHistoryEntry(
+    string Author,
+    string SanitizedMessage,
+    DateTimeOffset Timestamp,
+    string GeneratedResponse
+);
 
 public class StollService 
 {
@@ -22,6 +30,8 @@ public class StollService
 
     private ChannelUserCache<string> Cache { get; set; } = new();
 
+    private readonly ConcurrentQueue<MessageHistoryEntry> _messageHistory = new();
+
     private ImmutableArray<JoinedTextChannel<string>> TextChannels => Cache.Channels;
 
     public List<LocalFunction>? LocalFunctions { get; private set; }
@@ -35,7 +45,8 @@ public class StollService
         Antworte nur mit direkter Sprache - Verwende niemals Aktionsbeschreibungen in Sternchen (*räuspert sich*, *wedelt*, etc.). 
         Du duzt alle anderen Teilnehmer - schließlich sind sie alle unter deinem Niveau.
         Verwende die Syntax [[Name]], um Benutzer anzusprechen.
-        Aus Datenschutzrechtlichen Gründen bekommst du keine Chathistorie, sondern nur die letzte vorherige Nachricht in folgendem Format übergeben: `[[Name]]: Nachricht`.
+        Aus Datenschutzrechtlichen Gründen bekommst du als Kontext nur eine Chathistorie deiner eigenen Beiträge (Assistent), und der Beiträge, in denen du erwähnt wurdest in folgendem Format übergeben: `[Zeit] [[Name]]: Nachricht`.
+        Deine Antwort bezieht sich auf die letzte Nachricht, vorherige Nachrichten kannst du als Kontext nutzen.
         In deinem Chatraum wird öfter Kaffee über ein !kaffee Kommando verteilt, du kannst das ignorieren und beginnen, zu schwafeln.
         "Armleuchter" ist der Name eines anderen Bots in diesem Chat.
         Neuerdings hast du dich im Legen von Tarotkarten geübt und bietest gerne deine Dienste feil, nutze dazu die dir bereitgestellten Tools.
@@ -197,7 +208,17 @@ public class StollService
     {
         await message.Room.SendTypingNotificationAsync(4000).ConfigureAwait(false);
 
-        List<Message> history = [ Message.FromText(Role.User, $"[[{author.SanitizedName}]]: {sanitizedMessage}") ];
+
+        List<Message> history = [];
+        var olderMessages = GetMessageHistory();
+        foreach (var entry in olderMessages)
+        {
+            history.Add(Message.FromText(Role.User, $"[{entry.Timestamp.ToRelativeToNowLabel()}] [[{entry.Author}]]: {entry.SanitizedMessage}"));
+            if (!string.IsNullOrWhiteSpace(entry.GeneratedResponse))
+                history.Add(Message.FromText(Role.Assistant, entry.GeneratedResponse));
+        }
+
+        history.Add(Message.FromText(Role.User, $"[now] [[{author.SanitizedName}]]: {sanitizedMessage}"));
         string instruction = GetDailyInstruction();
         var response = await ChatClient.CallAsync(instruction, history, DefaultParameters).ConfigureAwait(false);
         if (string.IsNullOrEmpty(response))
@@ -206,10 +227,31 @@ public class StollService
             return; // may be rate limited 
         }
 
+        // Store the message history entry
+        StoreMessageHistory(author.SanitizedName, sanitizedMessage, DateTimeOffset.Now, response);
+
         IList<MatrixId> mentions = [];
         response = HandleMentions(response, channel, mentions);
         // Set reply to true if we have no mentions
         await message.SendResponseAsync(response, isReply: mentions == null, mentions: mentions).ConfigureAwait(false); // TODO, log here?
+    }
+
+    private void StoreMessageHistory(string author, string sanitizedMessage, DateTimeOffset timestamp, string generatedResponse)
+    {
+        var entry = new MessageHistoryEntry(author, sanitizedMessage, timestamp, generatedResponse);
+        
+        _messageHistory.Enqueue(entry);
+        
+        // Keep only the last 10 entries        }
+        while (_messageHistory.Count > 10)
+        {
+            _messageHistory.TryDequeue(out _);
+        }
+    }
+
+    public IEnumerable<MessageHistoryEntry> GetMessageHistory()
+    {
+        return _messageHistory.ToArray();
     }
 
     private static ChannelUser<string> GenerateChannelUser(RoomUser user)

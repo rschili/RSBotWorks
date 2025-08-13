@@ -48,6 +48,9 @@ functions.AddRange(LocalFunction.FromObject(weatherPlugin));
 NewsPlugin newsPlugin = new(httpClientFactory, provider.GetRequiredService<ILogger<NewsPlugin>>());
 functions.AddRange(LocalFunction.FromObject(newsPlugin));
 
+FortunePlugin fortunePlugin = new();
+functions.AddRange(LocalFunction.FromObject(fortunePlugin));
+
 using WernstromService wernstrom = new(provider.GetRequiredService<ILogger<WernstromService>>(),
     httpClientFactory, config.DiscordToken, chatClient, functions);
 
