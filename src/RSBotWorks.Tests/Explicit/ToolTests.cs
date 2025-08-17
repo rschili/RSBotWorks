@@ -293,7 +293,7 @@ public class ToolTests
         httpClientFactory.CreateClient(Arg.Any<string>()).Returns(_ => new HttpClient());
 
         var youtubePlugin = new YoutubePlugin(NullLogger<YoutubePlugin>.Instance, geminiApiKey, socialKitApiKey, httpClientFactory);
-        var videoUrl = "https://www.youtube.com/watch?v=lVAluHeOIjA&t"; // Example video URL
+        var videoUrl = "https://www.youtube.com/watch?v=nQWLd5oOZig"; // Example video URL
         var summary = await youtubePlugin.SummarizeVideoAsync(videoUrl).ConfigureAwait(false);
         await Assert.That(summary).IsNotNullOrEmpty();
         var logger = TestContext.Current?.GetDefaultLogger();

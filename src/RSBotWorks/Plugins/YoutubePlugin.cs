@@ -118,8 +118,25 @@ public class YoutubePlugin
                         FileUri = videoUrl,
                     }}
             ];
-            var response = await _model.GenerateContentAsync(parts);
-            summary = response.Text() ?? throw new InvalidOperationException("No summary returned from the model.");
+
+            try
+            {
+                var response = await _model.GenerateContentAsync(parts);
+                summary = response.Text() ?? throw new InvalidOperationException("No summary returned from the model.");
+            }
+            catch (Exception modelEx)
+            {
+                if (modelEx is GenerativeAI.Exceptions.ApiException geminiException && geminiException.ErrorCode == 403)
+                { // indicates gemini has no access to the video
+                    _logger.LogWarning("Gemini model access denied for video: {VideoUrl}. Please check the video URL or permissions.", videoUrl);
+                    summary = "Gemini has no access to the video and cannot generate a summary.";
+                }
+                else
+                {
+                    _logger.LogError(modelEx, "Failed to summarize video with Gemini model: {VideoUrl}", videoUrl);
+                    throw new InvalidOperationException("Failed to summarize video using both SocialKit and Gemini model.", modelEx);
+                }
+            }
         }
 
         // Add to cache
