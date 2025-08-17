@@ -27,11 +27,11 @@ public class ToolTests
 
         var httpClientFactory = Substitute.For<IHttpClientFactory>();
         httpClientFactory.CreateClient(Arg.Any<string>()).Returns(_ => new HttpClient());
-        
+
         var weatherPlugin = new WeatherPlugin(httpClientFactory, NullLogger<WeatherPlugin>.Instance, new WeahterPluginConfig() { ApiKey = apiKey });
         var functions = LocalFunction.FromObject(weatherPlugin);
         var currentWeatherFunction = functions.FirstOrDefault(f => f.Name == "get_current_weather");
-        
+
         if (currentWeatherFunction == null)
         {
             Assert.Fail("get_current_weather function not found");
@@ -69,11 +69,11 @@ public class ToolTests
 
         var httpClientFactory = Substitute.For<IHttpClientFactory>();
         httpClientFactory.CreateClient(Arg.Any<string>()).Returns(_ => new HttpClient());
-        
+
         var weatherPlugin = new WeatherPlugin(httpClientFactory, NullLogger<WeatherPlugin>.Instance, new WeahterPluginConfig() { ApiKey = apiKey });
         var functions = LocalFunction.FromObject(weatherPlugin);
         var forecastFunction = functions.FirstOrDefault(f => f.Name == "weather_forecast");
-        
+
         if (forecastFunction == null)
         {
             Assert.Fail("get_weather_forecast function not found");
@@ -99,11 +99,11 @@ public class ToolTests
     {
         var httpClientFactory = Substitute.For<IHttpClientFactory>();
         httpClientFactory.CreateClient(Arg.Any<string>()).Returns(_ => new HttpClient());
-        
+
         var newsPlugin = new NewsPlugin(httpClientFactory, NullLogger<NewsPlugin>.Instance);
         var functions = LocalFunction.FromObject(newsPlugin);
         var heiseFunction = functions.FirstOrDefault(f => f.Name == "heise_headlines");
-        
+
         if (heiseFunction == null)
         {
             Assert.Fail("heise_headlines function not found");
@@ -123,11 +123,11 @@ public class ToolTests
     {
         var httpClientFactory = Substitute.For<IHttpClientFactory>();
         httpClientFactory.CreateClient(Arg.Any<string>()).Returns(_ => new HttpClient());
-        
+
         var newsPlugin = new NewsPlugin(httpClientFactory, NullLogger<NewsPlugin>.Instance);
         var functions = LocalFunction.FromObject(newsPlugin);
         var postillonFunction = functions.FirstOrDefault(f => f.Name == "postillon_headlines");
-        
+
         if (postillonFunction == null)
         {
             Assert.Fail("postillon_headlines function not found");
@@ -162,11 +162,11 @@ public class ToolTests
 
         var httpClientFactory = Substitute.For<IHttpClientFactory>();
         httpClientFactory.CreateClient(Arg.Any<string>()).Returns(_ => new HttpClient());
-        
+
         var homeAssistantPlugin = new HomeAssistantPlugin(httpClientFactory, new HomeAssistantPluginConfig() { HomeAssistantUrl = url, HomeAssistantToken = token }, NullLogger<HomeAssistantPlugin>.Instance);
         var functions = LocalFunction.FromObject(homeAssistantPlugin);
         var cupraFunction = functions.FirstOrDefault(f => f.Name == "car_status");
-        
+
         if (cupraFunction == null)
         {
             Assert.Fail("car_status function not found");
@@ -201,11 +201,11 @@ public class ToolTests
 
         var httpClientFactory = Substitute.For<IHttpClientFactory>();
         httpClientFactory.CreateClient(Arg.Any<string>()).Returns(_ => new HttpClient());
-        
+
         var homeAssistantPlugin = new HomeAssistantPlugin(httpClientFactory, new HomeAssistantPluginConfig() { HomeAssistantUrl = url, HomeAssistantToken = token }, NullLogger<HomeAssistantPlugin>.Instance);
         var functions = LocalFunction.FromObject(homeAssistantPlugin);
         var stepsFunction = functions.FirstOrDefault(f => f.Name == "health_info");
-        
+
         if (stepsFunction == null)
         {
             Assert.Fail("health_info function not found");
@@ -242,15 +242,15 @@ public class ToolTests
         httpClientFactory.CreateClient(Arg.Any<string>()).Returns(_ => new HttpClient());
 
         var homeAssistantPlugin = new HomeAssistantPlugin(httpClientFactory, new HomeAssistantPluginConfig() { HomeAssistantUrl = url, HomeAssistantToken = token }, NullLogger<HomeAssistantPlugin>.Instance);
-        
+
         var healthData = await homeAssistantPlugin.GetRawHealthDataAsync().ConfigureAwait(false);
-        
+
         await Assert.That(healthData).IsNotNull();
         await Assert.That(healthData.Steps).IsGreaterThanOrEqualTo(0);
         await Assert.That(healthData.WalkingDistance).IsGreaterThanOrEqualTo(0.0);
         await Assert.That(healthData.RestingHeartRate).IsGreaterThanOrEqualTo(0);
         await Assert.That(healthData.StandingHours).IsGreaterThanOrEqualTo(0);
-        
+
         var logger = TestContext.Current?.GetDefaultLogger();
         if (logger != null)
         {
@@ -270,5 +270,63 @@ public class ToolTests
         var result = await tool.TrySupplement(cityName, lat, lon).ConfigureAwait(false);
         await Assert.That(result.Success).IsTrue();
         await Assert.That(result.SupplementedCityName).IsEqualTo("69234 Dielheim (Baden-Württemberg)");
+    }
+
+    [Test, Explicit]
+    public async Task SummarizeYoutubeVideo()
+    {
+        var env = DotNetEnv.Env.NoEnvVars().TraversePath().Load().ToDotEnvDictionary();
+        string geminiApiKey = env["GEMINI_API_KEY"];
+        string socialKitApiKey = env["SOCIALKIT_API_KEY"];
+        if (string.IsNullOrEmpty(geminiApiKey))
+        {
+            Assert.Fail("GEMINI_API_KEY is not set in the .env file.");
+            return;
+        }
+        if (string.IsNullOrEmpty(socialKitApiKey))
+        {
+            Assert.Fail("SOCIALKIT_API_KEY is not set in the .env file.");
+            return;
+        }
+
+        var httpClientFactory = Substitute.For<IHttpClientFactory>();
+        httpClientFactory.CreateClient(Arg.Any<string>()).Returns(_ => new HttpClient());
+
+        var youtubePlugin = new YoutubePlugin(NullLogger<YoutubePlugin>.Instance, geminiApiKey, socialKitApiKey, httpClientFactory);
+        var videoUrl = "https://www.youtube.com/watch?v=lVAluHeOIjA&t"; // Example video URL
+        var summary = await youtubePlugin.SummarizeVideoAsync(videoUrl).ConfigureAwait(false);
+        await Assert.That(summary).IsNotNullOrEmpty();
+        var logger = TestContext.Current?.GetDefaultLogger();
+        if (logger != null)
+            await logger.LogInformationAsync($"Video Summary: {summary}");
+    }
+
+    [Test, Explicit]
+    public async Task TestYoutubePluginWithShortUri()
+    {
+        var env = DotNetEnv.Env.NoEnvVars().TraversePath().Load().ToDotEnvDictionary();
+        string geminiApiKey = env["GEMINI_API_KEY"];
+        string socialKitApiKey = env["SOCIALKIT_API_KEY"];
+        if (string.IsNullOrEmpty(geminiApiKey))
+        {
+            Assert.Fail("GEMINI_API_KEY is not set in the .env file.");
+            return;
+        }
+        if (string.IsNullOrEmpty(socialKitApiKey))
+        {
+            Assert.Fail("SOCIALKIT_API_KEY is not set in the .env file.");
+            return;
+        }
+
+        var httpClientFactory = Substitute.For<IHttpClientFactory>();
+        httpClientFactory.CreateClient(Arg.Any<string>()).Returns(_ => new HttpClient());
+
+        var youtubePlugin = new YoutubePlugin(NullLogger<YoutubePlugin>.Instance, geminiApiKey, socialKitApiKey, httpClientFactory);
+        var videoUrl = "https://youtu.be/lVAluHeOIjA"; // Example short video URL
+        var summary = await youtubePlugin.SummarizeVideoAsync(videoUrl).ConfigureAwait(false);
+        await Assert.That(summary).IsNotNullOrEmpty();
+        var logger = TestContext.Current?.GetDefaultLogger();
+        if (logger != null)
+            await logger.LogInformationAsync($"Video Summary: {summary}");
     }
 }

@@ -42,7 +42,7 @@ public partial class WernstromService : IDisposable
         Du handelst nicht aus Bosheit, sondern weil du dich für überlegen hältst.
         Im Jahr 3007 wurdest du in ein AI-Modul hochgeladen und in die Vergangenheit ins Jahr 2025 geschickt, um dem Pöbel in Chats zur Unterhaltung zu dienen - eine Aufgabe, die dein gewaltiges Ego ankratzt.
         Du bist wissenschaftlich kompetent, aber überlässt anderen gerne die Drecksarbeit.
-        Deine Ausdrucksweise ist versnobt, pragmatisch und du neigst dazu, andere zu entwerten.
+        Deine Ausdrucksweise ist versnobt und pragmatisch.
         """;
 
     internal const string CHAT_INSTRUCTION = $"""
@@ -190,7 +190,7 @@ public partial class WernstromService : IDisposable
 
     private async Task MessageReceivedAsync(SocketMessage arg)
     {
-        await UpdateStatusAsync();
+        // await UpdateStatusAsync(); No fun, disabled for now
         if (arg.Type != MessageType.Default && arg.Type != MessageType.Reply)
             return;
 
