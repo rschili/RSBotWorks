@@ -7,18 +7,19 @@ using RSBotWorks.UniversalAI;
 
 namespace RSBotWorks.Plugins;
 
+public record VideoCacheEntry(string VideoUrl, string Summary, DateTimeOffset CachedAt);
+
 public class YoutubePlugin
 {
-
     private readonly ILogger<YoutubePlugin> _logger;
-
     private readonly GoogleAi _googleAi;
-
     private readonly GenerativeModel _model;
-
     private readonly IHttpClientFactory _httpClientFactory;
-
     private readonly string socialKitApiKey;
+    private readonly List<VideoCacheEntry> _cache = new();
+    private readonly object _cacheLock = new();
+    private const int MaxCacheEntries = 14;
+    private const int EntriesToRemoveWhenFull = 5;
 
     public YoutubePlugin(ILogger<YoutubePlugin> logger, string geminiApiKey, string socialKitApiKey, IHttpClientFactory httpClientFactory)
     {
@@ -87,28 +88,67 @@ public class YoutubePlugin
             throw new ArgumentException("Video URL cannot be null or empty.", nameof(videoUrl));
         }
 
+        // Check cache first
+        lock (_cacheLock)
+        {
+            var cachedEntry = _cache.FirstOrDefault(entry => entry.VideoUrl.Equals(videoUrl, StringComparison.OrdinalIgnoreCase));
+            if (cachedEntry != null)
+            {
+                _logger.LogInformation("Returning cached summary for video: {VideoUrl}", videoUrl);
+                return cachedEntry.Summary;
+            }
+        }
+
+        _logger.LogInformation("No cached summary found, generating new summary for video: {VideoUrl}", videoUrl);
+
+        string summary;
         try
         {
-            return await SummarizeVideoWithSocialKitAsync(videoUrl);
+            summary = await SummarizeVideoWithSocialKitAsync(videoUrl);
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "SocialKit API failed, falling back to Gemini model for video: {VideoUrl}", videoUrl);
+
+            List<Part> parts = [
+                new Part("Please give a concise and compact summary of the contents of the provided YouTube video."),
+                new Part {
+                    FileData = new FileData
+                    {
+                        FileUri = videoUrl,
+                    }}
+            ];
+            var response = await _model.GenerateContentAsync(parts);
+            summary = response.Text() ?? throw new InvalidOperationException("No summary returned from the model.");
         }
 
-        _logger.LogInformation("Summarizing video: {VideoUrl}", videoUrl);
+        // Add to cache
+        lock (_cacheLock)
+        {
+            AddToCache(videoUrl, summary);
+        }
 
-        List<Part> parts = [
-            new Part("Please give a concise and compact summary of the contents of the provided YouTube video."),
-            new Part {
-                FileData = new FileData
-                {
-                    FileUri = videoUrl,
-                }}
-        ];
-        var response = await _model.GenerateContentAsync(parts);
+        return summary;
+    }
 
-        return response.Text() ?? throw new InvalidOperationException("No summary returned from the model.");
+    private void AddToCache(string videoUrl, string summary)
+    {
+        var entry = new VideoCacheEntry(videoUrl, summary, DateTimeOffset.UtcNow);
+        _cache.Add(entry);
+
+        // If we've reached the limit, remove the oldest entries
+        if (_cache.Count > MaxCacheEntries)
+        {
+            var entriesToRemove = _cache.OrderBy(e => e.CachedAt).Take(EntriesToRemoveWhenFull).ToList();
+            foreach (var entryToRemove in entriesToRemove)
+            {
+                _cache.Remove(entryToRemove);
+            }
+            _logger.LogDebug("Removed {Count} old cache entries, cache size is now {Size}", 
+                entriesToRemove.Count, _cache.Count);
+        }
+
+        _logger.LogDebug("Added video summary to cache. Cache size: {Size}", _cache.Count);
     }
 
 

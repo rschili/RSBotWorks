@@ -54,6 +54,9 @@ functions.AddRange(LocalFunction.FromObject(fortunePlugin));
 using WernstromService wernstrom = new(provider.GetRequiredService<ILogger<WernstromService>>(),
     httpClientFactory, config.DiscordToken, chatClient, functions);
 
+YoutubePlugin youtubePlugin = new(provider.GetRequiredService<ILogger<YoutubePlugin>>(), config.GeminiApiKey, config.SocialKitApiKey, httpClientFactory);
+functions.Add(LocalFunction.FromMethod(youtubePlugin, nameof(YoutubePlugin.SummarizeVideoAsync)));
+
 try
 {
     await wernstrom.ExecuteAsync(CancellationToken.None).ConfigureAwait(false);

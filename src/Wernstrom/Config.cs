@@ -11,7 +11,10 @@ public enum EnvVar
     SQLITE_DB_PATH,
     OPENWEATHERMAP_API_KEY,
     HA_API_URL,
-    HA_TOKEN
+    HA_TOKEN,
+    GEMINI_API_KEY,
+    SOCIALKIT_API_KEY
+
 }
 
 public interface IConfig
@@ -26,6 +29,8 @@ public interface IConfig
     string OpenWeatherMapApiKey { get; }
     string HomeAssistantUrl { get; }
     string HomeAssistantToken { get; }
+    string GeminiApiKey { get; }
+    string SocialKitApiKey { get; }
 }
 
 public class Config : IConfig
@@ -42,6 +47,8 @@ public class Config : IConfig
     public string OpenWeatherMapApiKey => _variables[EnvVar.OPENWEATHERMAP_API_KEY];
     public string HomeAssistantUrl => _variables[EnvVar.HA_API_URL];
     public string HomeAssistantToken => _variables[EnvVar.HA_TOKEN];
+    public string GeminiApiKey => _variables[EnvVar.GEMINI_API_KEY];
+    public string SocialKitApiKey => _variables[EnvVar.SOCIALKIT_API_KEY];
 
     private Config(Dictionary<EnvVar, string> variables)
     {
