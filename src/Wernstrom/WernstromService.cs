@@ -283,7 +283,13 @@ public partial class WernstromService : IDisposable
             }
 
             var text = RestoreDiscordTags(response, cachedChannel, out var hasMentions);
-            await arg.Channel.SendMessageAsync(text, messageReference: null /*new MessageReference(arg.Id)*/).ConfigureAwait(false);
+            
+            // Set messageReference only if response took longer than 30 seconds
+            MessageReference? messageReference = stopwatch.Elapsed.TotalSeconds > 30 
+                ? new MessageReference(arg.Id) 
+                : null;
+                
+            await arg.Channel.SendMessageAsync(text, messageReference: messageReference).ConfigureAwait(false);
         }
         catch (Exception ex)
         {

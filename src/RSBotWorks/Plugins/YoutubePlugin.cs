@@ -18,6 +18,7 @@ public class YoutubePlugin
     private readonly string socialKitApiKey;
     private readonly List<VideoCacheEntry> _cache = new();
     private readonly object _cacheLock = new();
+    private volatile bool _isProcessing = false;
     private const int MaxCacheEntries = 14;
     private const int EntriesToRemoveWhenFull = 5;
 
@@ -81,14 +82,18 @@ public class YoutubePlugin
     [Description("Get a summary of the contents for a provided youtube video")]
     public async Task<string> SummarizeVideoAsync(
         [Description("Video URI supporting various formats like youtube.com/watch or youtu.be/")]
-        string videoUrl)
+        string videoUrl,
+        [Description("Optional, if provided, specifies an instruction on what information to return about the video")]
+        string? instruction = null)
     {
         if (string.IsNullOrWhiteSpace(videoUrl))
         {
             throw new ArgumentException("Video URL cannot be null or empty.", nameof(videoUrl));
         }
 
-        // Check cache first
+        bool hasInstruction = !string.IsNullOrWhiteSpace(instruction);
+
+        // Check cache first - regardless of processing state
         lock (_cacheLock)
         {
             var cachedEntry = _cache.FirstOrDefault(entry => entry.VideoUrl.Equals(videoUrl, StringComparison.OrdinalIgnoreCase));
@@ -99,53 +104,96 @@ public class YoutubePlugin
             }
         }
 
-        _logger.LogInformation("No cached summary found, generating new summary for video: {VideoUrl}", videoUrl);
+        // Check if already processing a request
+        if (_isProcessing)
+        {
+            _logger.LogInformation("Tool is busy, rejecting request for video: {VideoUrl}", videoUrl);
+            return "The tool is currently busy extracting information about a video, please retry later";
+        }
 
-        string summary;
+        // Set processing flag
+        _isProcessing = true;
         try
         {
-            summary = await SummarizeVideoWithSocialKitAsync(videoUrl);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "SocialKit API failed, falling back to Gemini model for video: {VideoUrl}", videoUrl);
+            _logger.LogInformation("No cached summary found, generating new summary for video: {VideoUrl}", videoUrl);
 
-            List<Part> parts = [
-                new Part("Please give a concise and compact summary of the contents of the provided YouTube video."),
-                new Part {
-                    FileData = new FileData
-                    {
-                        FileUri = videoUrl,
-                    }}
-            ];
+            string summary;
 
-            try
+            // If instruction is provided, always use GoogleAI
+            if (hasInstruction)
             {
-                var response = await _model.GenerateContentAsync(parts);
-                summary = response.Text() ?? throw new InvalidOperationException("No summary returned from the model.");
+                _logger.LogInformation("Instruction provided, using GoogleAI for video: {VideoUrl}", videoUrl);
+                summary = await SummarizeVideoWithGoogleAIAsync(videoUrl, instruction);
             }
-            catch (Exception modelEx)
+            else
             {
-                if (modelEx is GenerativeAI.Exceptions.ApiException geminiException && geminiException.ErrorCode == 403)
-                { // indicates gemini has no access to the video
-                    _logger.LogWarning("Gemini model access denied for video: {VideoUrl}. Please check the video URL or permissions.", videoUrl);
-                    summary = "Gemini has no access to the video and cannot generate a summary.";
-                }
-                else
+                // Try SocialKit first (preferred but rate-limited)
+                try
                 {
-                    _logger.LogError(modelEx, "Failed to summarize video with Gemini model: {VideoUrl}", videoUrl);
-                    throw new InvalidOperationException("Failed to summarize video using both SocialKit and Gemini model.", modelEx);
+                    summary = await SummarizeVideoWithSocialKitAsync(videoUrl);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "SocialKit API failed, falling back to GoogleAI for video: {VideoUrl}", videoUrl);
+                    summary = await SummarizeVideoWithGoogleAIAsync(videoUrl, null);
                 }
             }
-        }
 
-        // Add to cache
-        lock (_cacheLock)
+            // Add to cache
+            lock (_cacheLock)
+            {
+                AddToCache(videoUrl, summary);
+            }
+
+            return summary;
+        }
+        finally
         {
-            AddToCache(videoUrl, summary);
+            // Always clear the processing flag
+            _isProcessing = false;
+        }
+    }
+
+    private async Task<string> SummarizeVideoWithGoogleAIAsync(string videoUrl, string? instruction)
+    {
+        _logger.LogInformation("Summarizing video with GoogleAI: {VideoUrl}", videoUrl);
+
+        List<Part> parts = [];
+
+        if (!string.IsNullOrWhiteSpace(instruction))
+        {
+            parts.Add(new Part("Please give the information requested in the following instruction about the provided YouTube video:"));
+            parts.Add(new Part(instruction));
+        }
+        else
+        {
+            parts.Add(new Part("Please give a concise and compact summary of the contents of the provided YouTube video."));
         }
 
-        return summary;
+        parts.Add(new Part { 
+            FileData = new FileData {
+                FileUri = videoUrl,
+            }
+        });
+
+        try
+        {
+            var response = await _model.GenerateContentAsync(parts);
+            return response.Text() ?? throw new InvalidOperationException("No summary returned from GoogleAI model.");
+        }
+        catch (Exception modelEx)
+        {
+            if (modelEx is GenerativeAI.Exceptions.ApiException geminiException && geminiException.ErrorCode == 403)
+            {
+                _logger.LogWarning("GoogleAI model access denied for video: {VideoUrl}. Please check the video URL or permissions.", videoUrl);
+                return "GoogleAI has no access to the video and cannot generate a summary.";
+            }
+            else
+            {
+                _logger.LogError(modelEx, "Failed to summarize video with GoogleAI model: {VideoUrl}", videoUrl);
+                throw new InvalidOperationException("Failed to summarize video using GoogleAI model.", modelEx);
+            }
+        }
     }
 
     private void AddToCache(string videoUrl, string summary)
