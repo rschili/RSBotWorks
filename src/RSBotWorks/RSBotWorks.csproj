@@ -20,6 +20,7 @@
     <PackageReference Include="HADotNet.Core" Version="1.6.0" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.8" />
     <PackageReference Include="Microsoft.Extensions.Http" Version="9.0.8" />
+  <PackageReference Include="RSFlowControl" Version="1.0.2" />
     <PackageReference Include="Seq.Extensions.Logging" Version="8.0.0" />
     <PackageReference Include="RSMatrix" Version="1.0.3" />
     <PackageReference Include="System.ServiceModel.Syndication" Version="9.0.8" />
