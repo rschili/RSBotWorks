@@ -31,19 +31,12 @@ using var chatClient = ChatClient.CreateAnthropicClient(AnthropicModels.Claude4S
 //using var chatClient = ChatClient.CreateOpenAIResponsesClient(OpenAIModel.GPT5, config.OpenAiApiKey, serviceProvider.GetRequiredService<ILogger<ChatClient>>());
 
 List<LocalFunction> functions = [];
-HomeAssistantPlugin haPlugin = new(httpClientFactory, new HomeAssistantPluginConfig() { HomeAssistantToken = config.HomeAssistantToken, HomeAssistantUrl = config.HomeAssistantUrl },
-    serviceProvider.GetRequiredService<ILogger<HomeAssistantPlugin>>());
-functions.Add(LocalFunction.FromMethod(haPlugin, nameof(HomeAssistantPlugin.GetCarStatusAsync)));
-
 WeatherPlugin weatherPlugin = new(httpClientFactory, serviceProvider.GetRequiredService<ILogger<WeatherPlugin>>(),
     new WeahterPluginConfig() { ApiKey = config.OpenWeatherMapApiKey });
 functions.AddRange(LocalFunction.FromObject(weatherPlugin));
 
 NewsPlugin newsPlugin = new(httpClientFactory, serviceProvider.GetRequiredService<ILogger<NewsPlugin>>());
 functions.AddRange(LocalFunction.FromObject(newsPlugin));
-
-FortunePlugin fortunePlugin = new();
-functions.AddRange(LocalFunction.FromObject(fortunePlugin));
 
 StollService stoll = new(serviceProvider.GetRequiredService<ILogger<StollService>>(),
     config.MatrixUserId, config.MatrixPassword, httpClientFactory, chatClient, functions);
