@@ -84,6 +84,7 @@ public class StollService
         DefaultParameters = ChatClient.PrepareParameters(defaultChatParameters);
     }
 
+    private DateTimeOffset ConnectedAt { get; set; } = DateTimeOffset.MinValue;
     public async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         const int maxRetries = 10; // Maximum number of retries
@@ -107,6 +108,7 @@ public class StollService
                     HttpClientFactory, stoppingToken, Logger);
 
                 Logger.LogWarning("Connected to Matrix successfully.");
+                ConnectedAt = DateTimeOffset.Now;
                 retryCount = 0; // Reset retry count upon successful connection
                 currentDelay = initialDelay;   // Reset delay upon successful connection
 
@@ -150,10 +152,19 @@ public class StollService
 
         try
         {
-            //TODO: Instead of using timestamp we may use a combination of limited/prev_batch and next to tell if this is new or not
-            var age = DateTimeOffset.Now - message.Timestamp; // filter the message spam we receive from the server at start
-            if (age.TotalSeconds > 30)
+            // Ignore messages that arrived before we connected
+            if (message.Timestamp < ConnectedAt)
+            {
+                Logger.LogInformation("Discarding message from before connection (age before time connected: {Age}s)", (ConnectedAt - message.Timestamp).TotalSeconds);
                 return;
+            }
+
+            // Warn about old messages but continue processing
+            var age = DateTimeOffset.Now - message.Timestamp;
+            if (age.TotalSeconds > 30)
+            {
+                Logger.LogWarning("Processing high latency message (age: {Age}s)", age.TotalSeconds);
+            }
 
             if (message.ThreadId != null) // ignore messages in threads for now
                 return;

@@ -1,6 +1,8 @@
 #!/bin/bash
 
 # Path to your .env file
+# Use podman instead of docker
+alias docker=podman
 ENV_FILE="../.env"
 
 # Define image names

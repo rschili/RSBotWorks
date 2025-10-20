@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Use podman instead of docker
+alias docker=podman
+
 # Path to your .env file
 ENV_FILE="../.env"
 

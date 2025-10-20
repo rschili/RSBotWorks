@@ -129,7 +129,8 @@ internal class OpenAIResponsesChatClient : TypedChatClient<OpenAIResponseClient>
             var responseTool = ResponseTool.CreateFunctionTool(
                 functionName: localFunction.Name,
                 functionDescription: localFunction.Description,
-                functionParameters: BinaryData.FromString(schemaJson)
+                functionParameters: BinaryData.FromString(schemaJson),
+                strictModeEnabled: false
             );
 
             oaiTools.Add(responseTool);
