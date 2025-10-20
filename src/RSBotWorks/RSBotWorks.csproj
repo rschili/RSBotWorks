@@ -19,7 +19,7 @@
     <PackageReference Include="Google_GenerativeAI" Version="3.2.0" />
     <PackageReference Include="HADotNet.Core" Version="1.6.0" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.9" />
-    <PackageReference Include="Microsoft.Extensions.Http" Version="9.0.9" />
+    <PackageReference Include="Microsoft.Extensions.Http" Version="9.0.10" />
     <PackageReference Include="Seq.Extensions.Logging" Version="8.0.0" />
     <PackageReference Include="RSMatrix" Version="1.0.4" />
     <PackageReference Include="System.ServiceModel.Syndication" Version="9.0.9" />
