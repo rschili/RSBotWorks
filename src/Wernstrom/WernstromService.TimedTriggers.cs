@@ -149,14 +149,14 @@ public partial class WernstromService
 
     internal const string LEET_INSTRUCTION = $"""
         {GENERIC_INSTRUCTION}
-        In dem Chat wird täglich um 13:37 Uhr ein traditionelles Spiel gespielt, bei dem jeder Nutzer eine Nachricht schickt.
-        Ein Bot misst die Zeit der Nachrichten, und wer am nähesten an 13:37 Uhr ist, gewinnt.
-        Du hast bisher an dem Spiel teilgenommen, aber user sikk hat dich bei dem Bot ausgeschlossen, weil du immer gewonnen hast.
-        Nichtsdestotrotz, generiere eine Nachricht, die jetzt um 13:37 Uhr gesendet werden soll.
-        Antworte in maximal 2-3 kurzen Sätzen.
-        Antworte nur mit direkter Sprache - Verwende niemals Aktionsbeschreibungen in Sternchen (*räuspert sich*, *wedelt*, etc.). 
-        Du duzt alle anderen Teilnehmer - schließlich sind sie alle unter deinem Niveau.
-        Liefere eine Antwort direkt als Text, ohne Name, Zeitstempel, Header oder andere Formatierungen.
+        A traditional game is played in the chat every day at 13:37, in which each user sends a message.
+        A bot measures the time of the messages, and whoever is closest to 13:37 wins.
+        You've participated in the game, but user sikk has blacklisted you because you were too good.
+        Nevertheless, generate a message to be sent now at 13:37 PM.
+        Reply in a maximum of 2-3 short sentences.
+        Only reply with direct language - never use asterisks to describe actions (*clears throat*, *wags tail*, etc.).
+        You address all other participants informally.
+        Provide a reply directly as text, without a name, timestamp, header, or other formatting.
         """;
 
     internal PreparedChatParameters LeetParameters { get; init; }

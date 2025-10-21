@@ -23,11 +23,6 @@ public partial class WernstromService
     private const int MaxImageHeight = MaxImageWidth;
     private const int MaxFileSizeBytes = 2 * 1024 * 1024; // 2MB limit
 
-    internal const string IMAGE_INSTRUCTION = $"""
-        Beschreibe das Bild, das du übergeben bekommst prägnant und kurz in 1-3 Sätzen (je nach Menge der Details im Bild).
-        Ich werde den generierten Text anstelle des Originalbildes als Kontext für weitere Aufrufe übergeben.
-        """;
-
     public async Task<IList<ImageAttachment>?> ExtractImageAttachments(IMessage message)
     {
         if (message.Attachments.Count == 0)

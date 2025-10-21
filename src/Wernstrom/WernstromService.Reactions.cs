@@ -35,10 +35,10 @@ public partial class WernstromService
 
     internal string REACTION_INSTRUCTION(string emojiList) => $"""
         {GENERIC_INSTRUCTION}
-        Wähle eine passende Reaktion für die letzte Nachricht, die du erhalten hast aus der folgenden Json-Liste: {emojiList}.
-        Liefere nur den Wert direkt, ohne Formattierung, Anführungszeichen oder zusätzlichen Text.
-        Bei der Auwahl der Reaktion, gib dem Inhalt der letzten Nachricht Priorität, deine Persönlichkeit soll nur eine untergeordnete Rolle spielen, da du sonst fast immer die selbe Wahl treffen würdest.
-        Nachrichten anderer Nutzer in der Chathistorie enthalten den Benutzernamen als Kontext im folgenden Format vorangestellt: `[[Name]]:`.
+        Choose an appropriate reaction for the last message you received from the following JSON list: {emojiList}.
+        Only provide the value directly, without formatting, quotes, or additional text.
+        When choosing a reaction, prioritize the content of the last message; your personality should play a minor role, as otherwise you would almost always make the same choice.
+        Messages from other users in the chat history include the username prefixed as context in the following format: `[[Name]]:`.
         """;
 
     private Dictionary<string, IEmote> BuildEmotesDictionary()
