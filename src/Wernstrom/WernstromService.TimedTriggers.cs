@@ -8,6 +8,7 @@ using System.Text.RegularExpressions;
 using Discord;
 using Discord.WebSocket;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using RSBotWorks;
 using RSBotWorks.Plugins;
 using RSBotWorks.UniversalAI;
@@ -165,7 +166,7 @@ public partial class WernstromService
         ChatParameters parameters = new()
         {
             ToolChoiceType = ToolChoiceType.None,
-            MaxTokens = 200,
+            MaxTokens = 2000,
             Temperature = 0.7m,
         };
         return ChatClient.PrepareParameters(parameters);
@@ -195,16 +196,92 @@ public partial class WernstromService
         // Calculate precise timing for 13:37:00 CEST
         var cestNow = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, CESTTimeZone);
         var target1337 = cestNow.Date.AddHours(13).AddMinutes(37); // Today's 13:37:00 CEST
-        
+
         var remainingTime = target1337 - cestNow;
         int preFireMS = DiscordClient.Latency; // Account for network delay
         var waitTime = remainingTime.Subtract(TimeSpan.FromMilliseconds(preFireMS));
-        
+
         if (waitTime > TimeSpan.Zero)
         {
             await Task.Delay(waitTime).ConfigureAwait(false);
         }
 
         await textChannel.SendMessageAsync(response).ConfigureAwait(false);
+    }
+    
+    private async Task SendGoodMorningMessage()
+    {
+        if (!IsRunning)
+        {
+            Logger.LogWarning("Attempted to send good morning message while service is not running.");
+            return;
+        }
+
+        var channel = await DiscordClient.GetChannelAsync(225303764108705793ul).ConfigureAwait(false);
+        if (channel == null || channel is not ITextChannel textChannel)
+        {
+            Logger.LogError("Failed to get text channel for good morning message");
+            return;
+        }
+    
+        var cachedChannel = TextChannels.FirstOrDefault(c => c.Id == textChannel.Id);
+        if (cachedChannel == null)
+        {
+            cachedChannel = new JoinedTextChannel<ulong>(textChannel.Id, textChannel.Name, await GetChannelUsers(textChannel).ConfigureAwait(false));
+            Cache.Channels = TextChannels.Add(cachedChannel); // TODO: This may add duplicates, but since it's only a cache it should not matter
+        }
+
+        var redditPlugin = new RedditPlugin(NullLogger<RedditPlugin>.Instance, HttpClientFactory);
+        var worldNews = await redditPlugin.GetRedditTopPostsAsync("worldnews", 3).ConfigureAwait(false);
+        var futurology = await redditPlugin.GetRedditTopPostsAsync("futurology", 2).ConfigureAwait(false);
+        var technology = await redditPlugin.GetRedditTopPostsAsync("technology", 2).ConfigureAwait(false);
+        var science = await redditPlugin.GetRedditTopPostsAsync("science", 2).ConfigureAwait(false);
+        var economy = await redditPlugin.GetRedditTopPostsAsync("economics", 2).ConfigureAwait(false);
+
+        var liveHistory = await textChannel.GetMessagesAsync(5, CacheMode.AllowDownload).FlattenAsync().ConfigureAwait(false);
+        List<Message> history = new();
+        foreach (var message in liveHistory.Reverse())
+        {
+            await AddMessageToHistory(history, message, cachedChannel).ConfigureAwait(false);
+        }
+
+        var developerMessage = $"""
+            {GENERIC_INSTRUCTION}
+            You address other participants informally using "du".
+            Use the syntax [[Name]] to highlight users.
+            Messages from other users in the chat history are passed to you in the following format: `[Time] [[Name]]: Message`.
+            *** It is time to generate your daily good morning message (Sent every day at 8 o'clock in the morning). ***
+            Today is {DateTime.Now:dddd, MMMM dd, yyyy}.
+            Start with an enthusiastic greeting. You will be provided with some top news from various sources.
+            Process the news and include what you deem interesting for the channel users in your message.
+            Assume that the channel users are technically savvy and interested in current events, technology, and science.
+            They are also interested in world events, or major events regarding the economy.
+            If there are no relevant news included, you may just generate the greeting and be done quickly.
+            It helps to provide hyperlinks to the news sources you mention. But keep the overall message concise.
+
+            Here are the news from various sources (mostly reddit):
+            ---
+            {worldNews}
+            ---
+            {futurology}
+            ---
+            {technology}
+            ---
+            {science}
+            ---
+            {economy}
+            ---
+            Following these articles, you are given the last few text messages in the channel for better context.
+            """;
+
+        var response = await ChatClient.CallAsync(developerMessage, history, LeetParameters).ConfigureAwait(false);
+        if (string.IsNullOrEmpty(response))
+        {
+            Logger.LogWarning("Got an empty response for good morning message");
+            return;
+        }
+
+        var text = RestoreDiscordTags(response, cachedChannel, out var hasMentions);
+        await textChannel.SendMessageAsync(text).ConfigureAwait(false);
     }
 }

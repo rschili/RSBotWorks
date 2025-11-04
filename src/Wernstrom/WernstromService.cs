@@ -118,12 +118,12 @@ public partial class WernstromService : IDisposable
         await _discordClient.StartAsync().ConfigureAwait(false);
         
         // Register default operations
-        RegisterDailyOperation(new TimeOnly(13, 36), PerformLeetTimeOperation);
+        RegisterDailyOperation(new TimeOnly(08, 00), SendGoodMorningMessage);
 
         try
         {
             await Task.Delay(Timeout.Infinite, stoppingToken);
-            //await DailySchedulerLoop(stoppingToken);
+            await DailySchedulerLoop(stoppingToken);
         }
         catch (TaskCanceledException)
         {
