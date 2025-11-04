@@ -122,7 +122,7 @@ public partial class WernstromService : IDisposable
 
         try
         {
-            await Task.Delay(Timeout.Infinite, stoppingToken);
+            //await Task.Delay(Timeout.Infinite, stoppingToken);
             await DailySchedulerLoop(stoppingToken);
         }
         catch (TaskCanceledException)

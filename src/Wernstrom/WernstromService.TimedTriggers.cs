@@ -254,6 +254,7 @@ public partial class WernstromService
             Today is {DateTime.Now:dddd, MMMM dd, yyyy}.
             Start with an enthusiastic greeting. You will be provided with some top news from various sources.
             Process the news and include what you deem interesting for the channel users in your message.
+            Do not include more than 3 news items in total.
             Assume that the channel users are technically savvy and interested in current events, technology, and science.
             They are also interested in world events, or major events regarding the economy.
             If there are no relevant news included, you may just generate the greeting and be done quickly.
