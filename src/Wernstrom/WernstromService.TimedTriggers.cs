@@ -217,25 +217,32 @@ public partial class WernstromService
             return;
         }
 
-        var bruecke = await DiscordClient.GetChannelAsync(Config.BrueckeId).ConfigureAwait(false);
+        /*var bruecke = await DiscordClient.GetChannelAsync(Config.BrueckeId).ConfigureAwait(false);
         if (bruecke == null || bruecke is not ITextChannel brueckeTextChannel)
         {
             Logger.LogError("Failed to get text channel for good morning message context");
             return;
-        }
+        }*/
 
-        var maschinenraum = await DiscordClient.GetChannelAsync(Config.MaschinenraumId).ConfigureAwait(false);
-        if (maschinenraum == null || maschinenraum is not ITextChannel maschinenraumTextChannel)
+        var outputChannel = await DiscordClient.GetChannelAsync(Config.MaschinenraumId).ConfigureAwait(false);
+        if (outputChannel == null || outputChannel is not ITextChannel outputTextChannel)
         {
             Logger.LogError("Failed to get text channel for sending good morning message");
             return;
         }
     
-        var cachedBrueckeChannel = TextChannels.FirstOrDefault(c => c.Id == brueckeTextChannel.Id);
+        /*var cachedBrueckeChannel = TextChannels.FirstOrDefault(c => c.Id == brueckeTextChannel.Id);
         if (cachedBrueckeChannel == null)
         {
             cachedBrueckeChannel = new JoinedTextChannel<ulong>(brueckeTextChannel.Id, brueckeTextChannel.Name, await GetChannelUsers(brueckeTextChannel).ConfigureAwait(false));
             Cache.Channels = TextChannels.Add(cachedBrueckeChannel);
+        }*/
+
+        var cachedOutputChannel = TextChannels.FirstOrDefault(c => c.Id == outputTextChannel.Id);
+        if (cachedOutputChannel == null)
+        {
+            cachedOutputChannel = new JoinedTextChannel<ulong>(outputTextChannel.Id, outputTextChannel.Name, await GetChannelUsers(outputTextChannel).ConfigureAwait(false));
+            Cache.Channels = TextChannels.Add(cachedOutputChannel);
         }
 
         var redditPlugin = new RedditPlugin(NullLogger<RedditPlugin>.Instance, HttpClientFactory);
@@ -245,18 +252,17 @@ public partial class WernstromService
         var science = await redditPlugin.GetRedditTopPostsAsync("science", 2).ConfigureAwait(false);
         var economy = await redditPlugin.GetRedditTopPostsAsync("economics", 2).ConfigureAwait(false);
 
-        var liveHistory = await brueckeTextChannel.GetMessagesAsync(5, CacheMode.AllowDownload).FlattenAsync().ConfigureAwait(false);
         List<Message> history = new();
+        /*
+        var liveHistory = await brueckeTextChannel.GetMessagesAsync(5, CacheMode.AllowDownload).FlattenAsync().ConfigureAwait(false);
         foreach (var message in liveHistory.Reverse())
         {
             await AddMessageToHistory(history, message, cachedBrueckeChannel).ConfigureAwait(false);
         }
+        */
 
         var developerMessage = $"""
             {GENERIC_INSTRUCTION}
-            You address other participants informally using "du".
-            Use the syntax [[Name]] to highlight users.
-            Messages from other users in the chat history are passed to you in the following format: `[Time] [[Name]]: Message`.
             *** It is time to generate a daily good morning message (Sent every day at 8 o'clock in the morning). ***
             Today is {DateTime.Now:dddd, MMMM dd, yyyy}.
             Your message should be short and concise, ideally not longer than 3-4 sentences.
@@ -268,10 +274,10 @@ public partial class WernstromService
             They are also interested in world events, or major events regarding the economy.
             If there are no relevant news included, you may just generate the greeting and be done quickly.
             Do not end the message with a signature or conclusion.
-            You'll be given a few messages of the chat history, followed by several news sources provided as user messages.
+            You'll be given several news sources provided as user messages.
             A generic example for your response:
             ```
-            Guten Morgen, ihr technisch versierten Plebejern! Ich sehe, die üblichen Verdächtigen sind bereits wach. Wie... erfreulich.
+            Guten Morgen, ihr technisch versierten Plebejern!
             Nun denn, während ihr euch mit dem Ende der Erdbeersaison beschäftigt, hat die Welt draußen ein paar durchaus interessante Entwicklungen zu bieten:
             - [News 1 Title](https://linkto.news1): Kurzkommentar zu News 1.
             - News 2 Title without a link: Kurzkommentar zu News 2.
@@ -292,7 +298,7 @@ public partial class WernstromService
             return;
         }
 
-        var text = RestoreDiscordTags(response, cachedBrueckeChannel, out var hasMentions);
-        await maschinenraumTextChannel.SendMessageAsync(text, flags: MessageFlags.SuppressEmbeds | MessageFlags.SuppressNotification).ConfigureAwait(false);
+        var text = RestoreDiscordTags(response, cachedOutputChannel, out var hasMentions);
+        await outputTextChannel.SendMessageAsync(text, flags: MessageFlags.SuppressEmbeds | MessageFlags.SuppressNotification).ConfigureAwait(false);
     }
 }
