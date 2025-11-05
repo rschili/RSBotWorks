@@ -2,7 +2,9 @@ using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using RSBotWorks;
+using RSBotWorks.Plugins;
 using RSBotWorks.UniversalAI;
 using RSMatrix;
 using RSMatrix.Models;
@@ -16,7 +18,7 @@ public record MessageHistoryEntry(
     string GeneratedResponse
 );
 
-public class StollService 
+public partial class StollService 
 {
     private ILogger Logger { get; init; }
     private string MatrixUserId { get; init; }
@@ -88,6 +90,7 @@ public class StollService
         };
         // needs to be async so we prepare on first use
         DefaultParameters = ChatClient.PrepareParameters(defaultChatParameters);
+        RedditPlugin = new RedditPlugin(NullLogger<RedditPlugin>.Instance, httpClientFactory);
     }
 
     private DateTimeOffset ConnectedAt { get; set; } = DateTimeOffset.MinValue;
@@ -200,6 +203,13 @@ public class StollService
             // The bot should never respond to itself.
             if (isFromSelf)
                 return;
+
+            if(sanitizedMessage.StartsWith("!fefe", StringComparison.OrdinalIgnoreCase))
+            {
+                var fefePost = await GetFefePost();
+                await message.SendResponseAsync(fefePost, isReply: false).ConfigureAwait(false);
+                return;
+            }
 
             if (!ShouldRespond(message, sanitizedMessage, isCurrentUserMentioned))
                 return;
