@@ -14,11 +14,20 @@ using RSBotWorks.UniversalAI;
 
 namespace Wernstrom;
 
+public class WernstromServiceConfig
+{
+    public required string DiscordToken { get; init; }
+    public required ulong BrueckeId { get; init; }
+    public required ulong MaschinenraumId { get; init; }
+}
+
 public partial class WernstromService : IDisposable
 {
     public ILogger Logger { get; init; }
 
-    public string DiscordToken { get; init; }
+    public string DiscordToken => Config.DiscordToken;
+
+    public WernstromServiceConfig Config { get; init; }
 
     private ChatClient ChatClient { get; init; }
 
@@ -67,10 +76,12 @@ public partial class WernstromService : IDisposable
 
     internal PreparedChatParameters DefaultParameters { get; init; }
 
-    public WernstromService(ILogger<WernstromService> logger, IHttpClientFactory httpClientFactory, string discordToken, ChatClient chatClient, List<LocalFunction>? localFunctions)
+    public WernstromService(ILogger<WernstromService> logger, IHttpClientFactory httpClientFactory, WernstromServiceConfig config, ChatClient chatClient, List<LocalFunction>? localFunctions)
     {
         Logger = logger ?? throw new ArgumentNullException(nameof(logger));
-        DiscordToken = discordToken ?? throw new ArgumentNullException(nameof(discordToken));
+        Config = config ?? throw new ArgumentNullException(nameof(config));
+        ArgumentNullException.ThrowIfNull(DiscordToken, nameof(config.DiscordToken));
+
         ChatClient = chatClient ?? throw new ArgumentNullException(nameof(chatClient));
         HttpClientFactory = httpClientFactory ?? throw new ArgumentNullException(nameof(httpClientFactory));
         LocalFunctions = localFunctions;
@@ -116,7 +127,7 @@ public partial class WernstromService : IDisposable
         _discordClient.Ready += ReadyAsync;
         await _discordClient.LoginAsync(TokenType.Bot, DiscordToken).ConfigureAwait(false);
         await _discordClient.StartAsync().ConfigureAwait(false);
-        
+
         // Register default operations
         RegisterDailyOperation(new TimeOnly(08, 00), SendGoodMorningMessage);
 
@@ -292,12 +303,12 @@ public partial class WernstromService : IDisposable
             }
 
             var text = RestoreDiscordTags(response, cachedChannel, out var hasMentions);
-            
+
             // Set messageReference only if response took longer than 30 seconds
-            MessageReference? messageReference = stopwatch.Elapsed.TotalSeconds > 30 
-                ? new MessageReference(arg.Id) 
+            MessageReference? messageReference = stopwatch.Elapsed.TotalSeconds > 30
+                ? new MessageReference(arg.Id)
                 : null;
-                
+
             await arg.Channel.SendMessageAsync(text, messageReference: messageReference).ConfigureAwait(false);
         }
         catch (Exception ex)

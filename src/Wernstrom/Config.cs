@@ -13,8 +13,9 @@ public enum EnvVar
     HA_API_URL,
     HA_TOKEN,
     GEMINI_API_KEY,
-    SOCIALKIT_API_KEY
-
+    SOCIALKIT_API_KEY,
+    DISCORD_BRUECKE_ID,
+    DISCORD_MASCHINENRAUM_ID
 }
 
 public interface IConfig
@@ -31,6 +32,8 @@ public interface IConfig
     string HomeAssistantToken { get; }
     string GeminiApiKey { get; }
     string SocialKitApiKey { get; }
+    ulong DiscordBrueckeId { get; }
+    ulong DiscordMaschinenraumId { get; }
 }
 
 public class Config : IConfig
@@ -49,6 +52,8 @@ public class Config : IConfig
     public string HomeAssistantToken => _variables[EnvVar.HA_TOKEN];
     public string GeminiApiKey => _variables[EnvVar.GEMINI_API_KEY];
     public string SocialKitApiKey => _variables[EnvVar.SOCIALKIT_API_KEY];
+    public ulong DiscordBrueckeId => ulong.Parse(_variables[EnvVar.DISCORD_BRUECKE_ID]);
+    public ulong DiscordMaschinenraumId => ulong.Parse(_variables[EnvVar.DISCORD_MASCHINENRAUM_ID]);
 
     private Config(Dictionary<EnvVar, string> variables)
     {

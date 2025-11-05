@@ -217,18 +217,25 @@ public partial class WernstromService
             return;
         }
 
-        var channel = await DiscordClient.GetChannelAsync(225303764108705793ul).ConfigureAwait(false);
-        if (channel == null || channel is not ITextChannel textChannel)
+        var bruecke = await DiscordClient.GetChannelAsync(Config.BrueckeId).ConfigureAwait(false);
+        if (bruecke == null || bruecke is not ITextChannel brueckeTextChannel)
         {
-            Logger.LogError("Failed to get text channel for good morning message");
+            Logger.LogError("Failed to get text channel for good morning message context");
+            return;
+        }
+
+        var maschinenraum = await DiscordClient.GetChannelAsync(Config.MaschinenraumId).ConfigureAwait(false);
+        if (maschinenraum == null || maschinenraum is not ITextChannel maschinenraumTextChannel)
+        {
+            Logger.LogError("Failed to get text channel for sending good morning message");
             return;
         }
     
-        var cachedChannel = TextChannels.FirstOrDefault(c => c.Id == textChannel.Id);
-        if (cachedChannel == null)
+        var cachedBrueckeChannel = TextChannels.FirstOrDefault(c => c.Id == brueckeTextChannel.Id);
+        if (cachedBrueckeChannel == null)
         {
-            cachedChannel = new JoinedTextChannel<ulong>(textChannel.Id, textChannel.Name, await GetChannelUsers(textChannel).ConfigureAwait(false));
-            Cache.Channels = TextChannels.Add(cachedChannel); // TODO: This may add duplicates, but since it's only a cache it should not matter
+            cachedBrueckeChannel = new JoinedTextChannel<ulong>(brueckeTextChannel.Id, brueckeTextChannel.Name, await GetChannelUsers(brueckeTextChannel).ConfigureAwait(false));
+            Cache.Channels = TextChannels.Add(cachedBrueckeChannel);
         }
 
         var redditPlugin = new RedditPlugin(NullLogger<RedditPlugin>.Instance, HttpClientFactory);
@@ -238,11 +245,11 @@ public partial class WernstromService
         var science = await redditPlugin.GetRedditTopPostsAsync("science", 2).ConfigureAwait(false);
         var economy = await redditPlugin.GetRedditTopPostsAsync("economics", 2).ConfigureAwait(false);
 
-        var liveHistory = await textChannel.GetMessagesAsync(5, CacheMode.AllowDownload).FlattenAsync().ConfigureAwait(false);
+        var liveHistory = await brueckeTextChannel.GetMessagesAsync(5, CacheMode.AllowDownload).FlattenAsync().ConfigureAwait(false);
         List<Message> history = new();
         foreach (var message in liveHistory.Reverse())
         {
-            await AddMessageToHistory(history, message, cachedChannel).ConfigureAwait(false);
+            await AddMessageToHistory(history, message, cachedBrueckeChannel).ConfigureAwait(false);
         }
 
         var developerMessage = $"""
@@ -250,30 +257,33 @@ public partial class WernstromService
             You address other participants informally using "du".
             Use the syntax [[Name]] to highlight users.
             Messages from other users in the chat history are passed to you in the following format: `[Time] [[Name]]: Message`.
-            *** It is time to generate your daily good morning message (Sent every day at 8 o'clock in the morning). ***
+            *** It is time to generate a daily good morning message (Sent every day at 8 o'clock in the morning). ***
             Today is {DateTime.Now:dddd, MMMM dd, yyyy}.
+            Your message should be short and concise, ideally not longer than 3-4 sentences.
             Start with an enthusiastic greeting. You will be provided with some top news from various sources.
-            Process the news and include what you deem interesting for the channel users in your message.
+            Include what you deem interesting for the channel users from the news, the news may have links associated which you can
+            include as masked links into the news title
             Do not include more than 3 news items in total.
             Assume that the channel users are technically savvy and interested in current events, technology, and science.
             They are also interested in world events, or major events regarding the economy.
             If there are no relevant news included, you may just generate the greeting and be done quickly.
-            It helps to provide hyperlinks to the news sources you mention. But keep the overall message concise.
-
-            Here are the news from various sources (mostly reddit):
-            ---
-            {worldNews}
-            ---
-            {futurology}
-            ---
-            {technology}
-            ---
-            {science}
-            ---
-            {economy}
-            ---
-            Following these articles, you are given the last few text messages in the channel for better context.
+            Do not end the message with a signature or conclusion.
+            You'll be given a few messages of the chat history, followed by several news sources provided as user messages.
+            A generic example for your response:
+            ```
+            Guten Morgen, ihr technisch versierten Plebejern! Ich sehe, die üblichen Verdächtigen sind bereits wach. Wie... erfreulich.
+            Nun denn, während ihr euch mit dem Ende der Erdbeersaison beschäftigt, hat die Welt draußen ein paar durchaus interessante Entwicklungen zu bieten:
+            - [News 1 Title](https://linkto.news1): Kurzkommentar zu News 1.
+            - News 2 Title without a link: Kurzkommentar zu News 2.
+            - [News 3 Title](https://linkto.news3): Kurzkommentar zu News 3.
+            ```
             """;
+
+        history.Add(Message.FromText(Role.User, worldNews));
+        history.Add(Message.FromText(Role.User, futurology));
+        history.Add(Message.FromText(Role.User, technology));
+        history.Add(Message.FromText(Role.User, science));
+        history.Add(Message.FromText(Role.User, economy));
 
         var response = await ChatClient.CallAsync(developerMessage, history, LeetParameters).ConfigureAwait(false);
         if (string.IsNullOrEmpty(response))
@@ -282,7 +292,7 @@ public partial class WernstromService
             return;
         }
 
-        var text = RestoreDiscordTags(response, cachedChannel, out var hasMentions);
-        await textChannel.SendMessageAsync(text).ConfigureAwait(false);
+        var text = RestoreDiscordTags(response, cachedBrueckeChannel, out var hasMentions);
+        await maschinenraumTextChannel.SendMessageAsync(text, flags: MessageFlags.SuppressEmbeds | MessageFlags.SuppressNotification).ConfigureAwait(false);
     }
 }

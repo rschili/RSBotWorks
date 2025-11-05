@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using TUnit.Core.Logging;
 using System.Globalization;
 using RSBotWorks.UniversalAI;
+using Wernstrom;
 
 namespace RSBotWorks.Tests;
 
@@ -32,7 +33,13 @@ public class DiscordTests
 
         var config = Wernstrom.Config.LoadFromEnvFile();
         await Assert.That(config).IsNotNull();
-        var discordService = new Wernstrom.WernstromService(NullLogger<Wernstrom.WernstromService>.Instance, httpClientFactory, "", chatClient, null);
+        var wernstromConfig = new WernstromServiceConfig()
+        {
+            DiscordToken = "",
+            BrueckeId = 32434534ul,
+            MaschinenraumId = 32434535ul
+        };
+        var discordService = new Wernstrom.WernstromService(NullLogger<Wernstrom.WernstromService>.Instance, httpClientFactory, wernstromConfig, chatClient, null);
 
         var statusMessages = await discordService.CreateNewStatusMessages();
         await Assert.That(statusMessages).IsNotNull();
