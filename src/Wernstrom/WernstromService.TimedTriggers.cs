@@ -186,7 +186,7 @@ public partial class WernstromService
             return;
         }
 
-        var channel = await DiscordClient.GetChannelAsync(225303764108705793ul).ConfigureAwait(false);
+        var channel = await DiscordClient.GetChannelAsync(Config.BrueckeId).ConfigureAwait(false);
         if (channel == null || channel is not ITextChannel textChannel)
         {
             Logger.LogError("Failed to get text channel for 1337 time operation");
