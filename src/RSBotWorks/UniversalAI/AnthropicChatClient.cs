@@ -29,7 +29,7 @@ internal class AnthropicChatClient : TypedChatClient<AnthropicClient>
         {
             throw new ArgumentException("Parameters must be of type AnthropicChatParameters", nameof(parameters));
         }
-        if(inputs == null || inputs.Count == 0)
+        if (inputs == null || inputs.Count == 0)
         {
             throw new ArgumentException("Inputs cannot be null or empty", nameof(inputs));
         }
@@ -68,9 +68,52 @@ internal class AnthropicChatClient : TypedChatClient<AnthropicClient>
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Error while calling Anthropic API");
+            Logger.LogError(ex, "Error while calling Anthropic API. Message: {ErrorMessage}, Type: {ErrorType}", ex.Message, ex.GetType().Name);
+
+            if (ex is HttpRequestException httpEx)
+            {
+                var errorType = TryExtractErrorType(httpEx.Message);
+                if (errorType != null)
+                {
+                    if (errorType.Equals("overloaded_error", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return "You're absolutely right! Die Anthropic API ist überlastet. Bitte versuchen Sie es später noch einmal.";
+                    }
+                    if (errorType.Equals("invalid_request_error", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (httpEx.Message.Contains("image/webp", StringComparison.OrdinalIgnoreCase))
+                        {
+                            Logger.LogError("Hit the known image format issue");
+                            var images = inputs.SelectMany(m => m.Content).OfType<ImageContent>();
+                            foreach (var image in images)
+                            {
+                                Logger.LogError("Provided image input mime: {MimeType} base64: {Base64}", image.MimeType, Convert.ToBase64String(image.Data));
+                            }
+                            return "You're absolutely right! Ein Bild aus der Historie ist offenbar kaputt.";
+                        }
+                    }
+                }
+                return "You're absolutely right!  Es scheint ein Problem mit der an die Anthropic API gesendeten Anfrage zu geben.";
+            }
+
             throw;
         }
+    }
+
+    private static string? TryExtractErrorType(string message)
+    {
+        // Find all "type":"value" patterns and return the first one that isn't "error"
+        // Example input string: {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"},"request_id":null}
+        var matches = System.Text.RegularExpressions.Regex.Matches(message, @"""type""\s*:\s*""([^""]+)""");
+        foreach (System.Text.RegularExpressions.Match match in matches)
+        {
+            var value = match.Groups[1].Value;
+            if (value != "error")
+            {
+                return value;
+            }
+        }
+        return null;
     }
 
     private async Task<string> LoopToCompletion(MessageParameters message, AnthropicChatParameters parameters, StringBuilder result)

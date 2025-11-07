@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using RSBotWorks.UniversalAI;
 using RSBotWorks.Plugins;
 using System.Text.Json;
+using TUnit.Assertions.Extensions;
 
 namespace RSBotWorks.Tests;
 
@@ -21,7 +22,7 @@ public class FortunePluginTests
         var result = await plugin.DrawCardAsync();
 
         // Assert
-        await Assert.That(result).IsNotNullOrWhitespace();
+        await Assert.That(result).IsNotNullOrWhiteSpace();
         await Assert.That(result).Contains("("); // Should contain German name in parentheses
         await Assert.That(result).Contains(")");
         await Assert.That(result).Contains(" - "); // Should contain orientation separator
@@ -42,7 +43,7 @@ public class FortunePluginTests
         var result = await plugin.DrawThreeCardsAsync();
 
         // Assert
-        await Assert.That(result).IsNotNullOrWhitespace();
+        await Assert.That(result).IsNotNullOrWhiteSpace();
         
         // Should contain three cards (numbered 1, 2, 3)
         await Assert.That(result).Contains("1. ");
@@ -79,8 +80,8 @@ public class FortunePluginTests
         // Act & Assert
         foreach (var card in TarotDeck.AllCards)
         {
-            await Assert.That(card.EnglishName).IsNotNullOrWhitespace();
-            await Assert.That(card.GermanName).IsNotNullOrWhitespace();
+            await Assert.That(card.EnglishName).IsNotNullOrWhiteSpace();
+            await Assert.That(card.GermanName).IsNotNullOrWhiteSpace();
             await Assert.That(card.EnglishName).IsNotEqualTo(card.GermanName); // Should be different languages
         }
     }

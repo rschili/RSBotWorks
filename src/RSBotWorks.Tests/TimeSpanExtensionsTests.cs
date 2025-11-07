@@ -1,6 +1,5 @@
 using System;
 using System.Threading.Tasks;
-using TUnit.Assertions.AssertConditions.Throws;
 
 namespace RSBotWorks.Tests;
 

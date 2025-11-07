@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using System.Text.RegularExpressions;
+using Markdig;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using RSBotWorks;
@@ -207,7 +208,8 @@ public partial class StollService
             if(sanitizedMessage.StartsWith("!fefe", StringComparison.OrdinalIgnoreCase))
             {
                 var fefePost = await GetFefePost();
-                await message.SendResponseAsync(fefePost, isReply: false).ConfigureAwait(false);
+                var html = Markdown.ToHtml(fefePost);
+                await message.SendHtmlResponseAsync(fefePost, html, isReply: false).ConfigureAwait(false);
                 return;
             }
 
