@@ -269,15 +269,13 @@ public partial class WernstromService
             Start with an enthusiastic greeting. You will be provided with some top news from various sources.
             Include what you deem interesting for the channel users from the news, the news may have links associated which you can
             include as masked links into the news title
-            Do not include more than 3 news items in total.
-            Assume that the channel users are technically savvy and interested in current events, technology, and science.
-            They are also interested in world events, or major events regarding the economy.
-            If there are no relevant news included, you may just generate the greeting and be done quickly.
+            Do not include more than 4 news items in total.
+            If there are no interesting or significant news included, you may just generate the greeting and be done quickly.
             Do not end the message with a signature or conclusion.
             You'll be given several news sources provided as user messages.
             A generic example for your response:
             ```
-            Guten Morgen, ihr technisch versierten Plebejern!
+            Guten Morgen, ihr Plebejern!
             Nun denn, während ihr euch mit dem Ende der Erdbeersaison beschäftigt, hat die Welt draußen ein paar durchaus interessante Entwicklungen zu bieten:
             - [News 1 Title](https://linkto.news1): Kurzkommentar zu News 1.
             - News 2 Title without a link: Kurzkommentar zu News 2.
