@@ -89,6 +89,7 @@ public partial class WernstromService
         // Check if inputContentType is a known image mime type
         if (!string.IsNullOrWhiteSpace(inputContentType) && inputContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
         {
+            Logger.LogWarning("Using MimeType from discord ({InputContentType})", inputContentType);
             mimeType = inputContentType;
             return true;
         }
@@ -97,6 +98,7 @@ public partial class WernstromService
         var ext = Path.GetExtension(filename);
         if (!string.IsNullOrWhiteSpace(ext) && ImageExtensionToMimeType.TryGetValue(ext, out var foundMimeType))
         {
+            Logger.LogWarning("Using MimeType from file extension ({Extension}) set to {MimeType}", ext, foundMimeType);
             mimeType = foundMimeType;
             return true;
         }
