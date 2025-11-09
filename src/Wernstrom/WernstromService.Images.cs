@@ -45,7 +45,7 @@ public partial class WernstromService
             bool isResized = false;
             if (attachment.Size > MaxFileSizeBytes || attachment.Height > MaxImageHeight || attachment.Width > MaxImageWidth)
             {
-                Logger.LogWarning($"Attachment {attachment.Filename} exceeds the size or dimension limits. (Size: {attachment.Size / 1024} KB, Dimensions: {attachment.Width}x{attachment.Height}) it will be resized.");
+                Logger.LogInformation($"Attachment {attachment.Filename} exceeds the size or dimension limits. (Size: {attachment.Size / 1024} KB, Dimensions: {attachment.Width}x{attachment.Height}) it will be resized.");
                 imageData = await ProcessImage(imageData).ConfigureAwait(false);
                 mimeType = "image/jpeg"; // Assume JPEG after processing
                 isResized = true;
@@ -89,7 +89,7 @@ public partial class WernstromService
         // Check if inputContentType is a known image mime type
         if (!string.IsNullOrWhiteSpace(inputContentType) && inputContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
         {
-            Logger.LogWarning("Using MimeType from discord ({InputContentType})", inputContentType);
+            Logger.LogInformation("Using MimeType from discord ({InputContentType})", inputContentType);
             mimeType = inputContentType;
             return true;
         }
@@ -98,7 +98,7 @@ public partial class WernstromService
         var ext = Path.GetExtension(filename);
         if (!string.IsNullOrWhiteSpace(ext) && ImageExtensionToMimeType.TryGetValue(ext, out var foundMimeType))
         {
-            Logger.LogWarning("Using MimeType from file extension ({Extension}) set to {MimeType}", ext, foundMimeType);
+            Logger.LogInformation("Using MimeType from file extension ({Extension}) set to {MimeType}", ext, foundMimeType);
             mimeType = foundMimeType;
             return true;
         }
@@ -120,12 +120,12 @@ public partial class WernstromService
 
                 // Save or process the resized image
                 var resizedData = await ConvertImageToJpeg(resizedImage).ConfigureAwait(false);
-                Logger.LogWarning($"Resized image to: {resizedImage.Width}x{resizedImage.Height} Size reduced from {imageData.Length / 1024} KB to {resizedData.Length / 1024} KB");
+                Logger.LogInformation($"Resized image to: {resizedImage.Width}x{resizedImage.Height} Size reduced from {imageData.Length / 1024} KB to {resizedData.Length / 1024} KB");
                 return resizedData;
             }
 
             var processedData = await ConvertImageToJpeg(image).ConfigureAwait(false);
-            Logger.LogWarning($"Size reduced from {imageData.Length / 1024} KB to {processedData.Length / 1024} KB");
+            Logger.LogInformation($"Size reduced from {imageData.Length / 1024} KB to {processedData.Length / 1024} KB");
             return processedData;
         }
     }

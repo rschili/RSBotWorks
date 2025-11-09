@@ -265,18 +265,18 @@ public partial class WernstromService
             {GENERIC_INSTRUCTION}
             *** It is time to generate a daily good morning message (Sent every day at 8 o'clock in the morning). ***
             Today is {DateTime.Now:dddd, MMMM dd, yyyy}.
-            Your message should be short and concise, ideally not longer than 3-4 sentences.
+            Your message should be short and concise.
             Start with an enthusiastic greeting. You will be provided with some top news from various sources.
             Include what you deem interesting for the channel users from the news, the news may have links associated which you can
             include as masked links into the news title
             Do not include more than 4 news items in total.
             If there are no interesting or significant news included, you may just generate the greeting and be done quickly.
+            When choosing articles, rate them based on their significance and relevance to a tech-savvy audience.
             Do not end the message with a signature or conclusion.
             You'll be given several news sources provided as user messages.
-            A generic example for your response:
+            A generic example on how the response should be structured:
             ```
-            Guten Morgen, ihr Plebejern!
-            Nun denn, während ihr euch mit dem Ende der Erdbeersaison beschäftigt, hat die Welt draußen ein paar durchaus interessante Entwicklungen zu bieten:
+            (Good morning message)
             - [News 1 Title](https://linkto.news1): Kurzkommentar zu News 1.
             - News 2 Title without a link: Kurzkommentar zu News 2.
             - [News 3 Title](https://linkto.news3): Kurzkommentar zu News 3.

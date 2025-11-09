@@ -62,7 +62,16 @@ partial class StollService
     {
         var sb = new System.Text.StringBuilder();
         sb.AppendLine($"[{post.Title}]({post.Url})");
-        sb.AppendLine(post.Selftext);
+        sb.AppendLine();
+        sb.AppendLine(FixMarkdownQuotes(post.Selftext));
         return sb.ToString();
+    }
+
+    private static string FixMarkdownQuotes(string? text)
+    {
+        if (string.IsNullOrEmpty(text))
+            return string.Empty;
+
+        return System.Text.RegularExpressions.Regex.Replace(text, @"^>(?! )", "> ", System.Text.RegularExpressions.RegexOptions.Multiline);
     }
 }
