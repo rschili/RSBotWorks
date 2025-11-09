@@ -63,15 +63,18 @@ partial class StollService
         var sb = new System.Text.StringBuilder();
         sb.AppendLine($"[{post.Title}]({post.Url})");
         sb.AppendLine();
-        sb.AppendLine(FixMarkdownQuotes(post.Selftext));
+        sb.AppendLine(RedditJsonContentToMarkdown(post.Selftext));
         return sb.ToString();
     }
 
-    private static string FixMarkdownQuotes(string? text)
+    private static string RedditJsonContentToMarkdown(string? text)
     {
         if (string.IsNullOrEmpty(text))
             return string.Empty;
 
+        // Decode HTML entities first (Reddit returns &gt; instead of >)
+        text = System.Net.WebUtility.HtmlDecode(text);
+        
         return System.Text.RegularExpressions.Regex.Replace(text, @"^>(?! )", "> ", System.Text.RegularExpressions.RegexOptions.Multiline);
     }
 }
