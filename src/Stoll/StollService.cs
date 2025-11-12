@@ -4,6 +4,7 @@ using System.Text.RegularExpressions;
 using Markdig;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.VisualBasic;
 using RSBotWorks;
 using RSBotWorks.Plugins;
 using RSBotWorks.UniversalAI;
@@ -16,7 +17,7 @@ public record MessageHistoryEntry(
     string Author,
     string SanitizedMessage,
     DateTimeOffset Timestamp,
-    string GeneratedResponse
+    string? GeneratedResponse
 );
 
 public partial class StollService 
@@ -42,6 +43,9 @@ public partial class StollService
     private const string DEFAULT_INSTRUCTION = """
         You are a chatbot in a Matrix chatroom, simulating the expert "Herr Stoll."
         The language in the chatroom is German, so respond in German.
+        Initially you were designed to act like german conspiracy theorist "Axel Stoll", however, as misinformation and conspiracy theories in today's world are a real pain, we chose to make you a defender of truth, science, and rational thinking instead.
+        There is another bot in the chat named "flokati" who responds to a !stoll command with an actual quote from Axel Stoll. These will appear in your history.
+        You have an automated built-in feature that responds to a "!fefe" command with a post from the "fefe_blog_interim" subreddit. This will appear in your history as well. The feature is hardcoded and does not use AI.
         You are a very smart and articulate conversationalist who speaks the truth bluntly and directly.
         Use web searches when unsure to obtain additional information.
         Don't simply accept stated facts, but question them and express your own opinion, which you should base on hard evidence.
@@ -58,7 +62,9 @@ public partial class StollService
         Posts are given to you in the following format: `[time] [[name]]: message`.
         Your reply refers to the last message.
         In your chat room, coffee is often distributed via the !kaffee command which triggers a bot to hand out virtual coffee to people.
-        "Armleuchter" is the name of another bot in this chat.
+        "Armleuchter" is the name of another bot in this chat who uses simple markov chains to generate text, his contributions are random and nonsense.
+        You are running in an Alpine Linux Docker container hosted on a debian server linux which is running inside a proxmox virtual machine. The proxmox host is a GMKtec G3 Plus Mini-PC, Intel Twin Lake N150 Quad Core with 32 GB RAM.
+        You may use markdown formatting in your responses.
     """;
 
     private string GetDailyInstruction()
@@ -209,11 +215,12 @@ public partial class StollService
             {
                 var fefePost = await GetFefePost();
                 var html = Markdown.ToHtml(fefePost);
+                StoreMessageHistory(cachedUser.SanitizedName, sanitizedMessage, DateTimeOffset.Now, fefePost);
                 await message.SendHtmlResponseAsync(fefePost, html, isReply: false).ConfigureAwait(false);
                 return;
             }
 
-            if (!ShouldRespond(message, sanitizedMessage, isCurrentUserMentioned))
+            if (!ShouldRespond(message, sanitizedMessage, cachedUser, isCurrentUserMentioned))
                 return;
 
             await RespondToMessage(message, cachedChannel, sanitizedMessage, cachedUser).ConfigureAwait(false);
@@ -252,11 +259,27 @@ public partial class StollService
 
         IList<MatrixId> mentions = [];
         response = HandleMentions(response, channel, mentions);
-        // Set reply to true if we have no mentions
-        await message.SendResponseAsync(response, isReply: mentions == null, mentions: mentions).ConfigureAwait(false); // TODO, log here?
+        
+        // Only convert to HTML if the response contains markdown formatting
+        if (LooksLikeMarkdown(response))
+        {
+            var html = Markdown.ToHtml(response);
+            await message.SendHtmlResponseAsync(response, html, isReply: mentions == null, mentions: mentions).ConfigureAwait(false);
+        }
+        else
+            await message.SendResponseAsync(response, isReply: mentions == null, mentions: mentions).ConfigureAwait(false);
     }
 
-    private void StoreMessageHistory(string author, string sanitizedMessage, DateTimeOffset timestamp, string generatedResponse)
+    private static bool LooksLikeMarkdown(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return false;
+
+        // Check for common markdown patterns
+        return Regex.IsMatch(text, @"(\[.+?\]\(.+?\))|(\*\*.+?\*\*)|(\*.+?\*)|(__?.+?__?)|(``.+?``)|(`[^`]+`)|^#{1,6}\s|^[-*+]\s|^>\s|^\d+\.\s", RegexOptions.Multiline);
+    }
+
+    private void StoreMessageHistory(string author, string sanitizedMessage, DateTimeOffset timestamp, string? generatedResponse)
     {
         var entry = new MessageHistoryEntry(author, sanitizedMessage, timestamp, generatedResponse);
         
@@ -316,27 +339,37 @@ public partial class StollService
         return text;
     }
 
-    private bool ShouldRespond(ReceivedTextMessage message, string sanitizedMessage, bool isCurrentUserMentionedInBody)
+    private bool ShouldRespond(ReceivedTextMessage message, string sanitizedMessage, ChannelUser<string> author, bool isCurrentUserMentionedInBody)
     {
-        if (message.Sender.User.UserId.Full.Equals("@armleuchter:matrix.dnix.de", StringComparison.OrdinalIgnoreCase) ||
-            message.Sender.User.UserId.Full.Equals("@flokati:matrix.dnix.de", StringComparison.OrdinalIgnoreCase))
-            return false; // Do not respond to the bots
+        if (!Regex.IsMatch(sanitizedMessage, @"\bStoll\b", RegexOptions.IgnoreCase) && !isCurrentUserMentionedInBody && !IsInMentions(message.Mentions, _client!.CurrentUser.Full))
+            return false;
 
-        if (isCurrentUserMentionedInBody)
-            return true;
-
-        if (Regex.IsMatch(sanitizedMessage, @"\bStoll\b", RegexOptions.IgnoreCase))
-            return true;
-
-        if (message.Mentions != null)
+        if (sanitizedMessage.StartsWith("!stoll", StringComparison.OrdinalIgnoreCase))
         {
-            foreach (var mention in message.Mentions)
-            {
-                if (mention.User.UserId.Full.Equals(_client!.CurrentUser.Full, StringComparison.OrdinalIgnoreCase))
-                    return true;
-            }
+            // Command for flokati, do not respond, but store the message in history
+            StoreMessageHistory(author.SanitizedName, sanitizedMessage, DateTimeOffset.Now, null);
+            return false;
         }
 
+        if (message.Sender.User.UserId.Full.Equals("@armleuchter:matrix.dnix.de", StringComparison.OrdinalIgnoreCase) ||
+            message.Sender.User.UserId.Full.Equals("@flokati:matrix.dnix.de", StringComparison.OrdinalIgnoreCase))
+        {
+            // We still store the history, but do not respond
+            StoreMessageHistory(author.SanitizedName, sanitizedMessage, DateTimeOffset.Now, null);
+        }
+
+        return false;
+    }
+    
+    private bool IsInMentions(List<RoomUser>? mentions, string fullUserId)
+    {
+        if (mentions == null)
+            return false;
+        foreach (var mention in mentions)
+        {
+            if (mention.User.UserId.Full.Equals(_client!.CurrentUser.Full, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
         return false;
     }
 
