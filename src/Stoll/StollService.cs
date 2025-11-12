@@ -356,9 +356,10 @@ public partial class StollService
         {
             // We still store the history, but do not respond
             StoreMessageHistory(author.SanitizedName, sanitizedMessage, DateTimeOffset.Now, null);
+            return false;
         }
 
-        return false;
+        return true;
     }
     
     private bool IsInMentions(List<RoomUser>? mentions, string fullUserId)
