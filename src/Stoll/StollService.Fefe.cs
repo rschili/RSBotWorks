@@ -44,7 +44,7 @@ partial class StollService
     {
         try
         {
-            var posts = await RedditPlugin.FetchTopPostsAsync("fefe_blog_interim", 12, RedditTimespan.Week);
+            var posts = await RedditPlugin.FetchPostsAsync("fefe_blog_interim", 10, RedditSort.Best, RedditTimespan.Week);
             FefePostsQueue.Clear();
             foreach (var post in posts.Where(p => p.Selftext != null))
             {

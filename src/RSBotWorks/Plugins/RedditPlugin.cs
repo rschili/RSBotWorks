@@ -17,7 +17,18 @@ public enum RedditTimespan
     All
 }
 
+public enum RedditSort
+{
+    Hot,
+    New,
+    Top,
+    Rising,
+    Controversial,
+    Best
+}
+
 public record RedditPost(
+    string SubredditName,
     string Title,
     string Permalink,
     string? Selftext,
@@ -35,7 +46,7 @@ public class RedditPlugin
         HttpClientFactory = httpClientFactory ?? throw new ArgumentNullException(nameof(httpClientFactory));
     }
 
-    public async Task<List<RedditPost>> FetchTopPostsAsync(string subredditName, int limit = 5, RedditTimespan timespan = RedditTimespan.Day)
+    public async Task<List<RedditPost>> FetchPostsAsync(string subredditName, int limit = 5, RedditSort sort = RedditSort.Top, RedditTimespan timespan = RedditTimespan.Day)
     {
         var timespanValue = timespan switch
         {
@@ -47,8 +58,30 @@ public class RedditPlugin
             RedditTimespan.All => "all",
             _ => "day"
         };
+
+        var sortValue = sort switch
+        {
+            RedditSort.Hot => "hot",
+            RedditSort.New => "new",
+            RedditSort.Top => "top",
+            RedditSort.Rising => "rising",
+            RedditSort.Controversial => "controversial",
+            RedditSort.Best => "best",
+            _ => "top"
+        };
+
+        var maxAge = timespan switch
+        {
+            RedditTimespan.Hour => TimeSpan.FromHours(1),
+            RedditTimespan.Day => TimeSpan.FromDays(1),
+            RedditTimespan.Week => TimeSpan.FromDays(7),
+            RedditTimespan.Month => TimeSpan.FromDays(30),
+            RedditTimespan.Year => TimeSpan.FromDays(365),
+            RedditTimespan.All => TimeSpan.MaxValue,
+            _ => TimeSpan.FromDays(1)
+        };
         
-        var url = $"https://www.reddit.com/r/{subredditName}/top/.json?t={timespanValue}&limit={limit}";
+        var url = $"https://www.reddit.com/r/{subredditName}/{sortValue}/.json?t={timespanValue}&limit={limit}";
         
         using var httpClient = HttpClientFactory.CreateClient();
         httpClient.DefaultRequestHeaders.Add("User-Agent", "RSBotWorks/1.0");
@@ -69,6 +102,10 @@ public class RedditPlugin
             var title = data.GetProperty("title").GetString();
             if (string.IsNullOrWhiteSpace(title))
                 continue;
+
+            var localSubreddit = data.GetProperty("subreddit").GetString();
+            if (string.IsNullOrWhiteSpace(localSubreddit))
+                continue;
             
             var permalink = data.GetProperty("permalink").GetString();
             if (permalink == null)
@@ -81,8 +118,25 @@ public class RedditPlugin
             var url_value = data.TryGetProperty("url", out var urlElement) 
                 ? urlElement.GetString() 
                 : null;
+
+            var pinned = data.TryGetProperty("pinned", out var pinnedElement) 
+                ? pinnedElement.GetBoolean() 
+                : false;
+
+            var stickied = data.TryGetProperty("stickied", out var stickiedElement) 
+                ? stickiedElement.GetBoolean() 
+                : false;
+
+            if (pinned || stickied)
+                continue; // do not return these
+
+            var created = data.GetProperty("created_utc").GetDouble();
+            var createdDateTime = DateTimeOffset.FromUnixTimeSeconds((long)created);
+            var age = DateTimeOffset.UtcNow - createdDateTime;
+            if (age > maxAge)
+                continue; // post is older than the specified timespan
             
-            posts.Add(new RedditPost(title, permalink, selftext, url_value));
+            posts.Add(new RedditPost(localSubreddit, title, permalink, selftext, url_value));
         }
         
         return posts;
@@ -90,26 +144,13 @@ public class RedditPlugin
 
     [LocalFunction("reddit_top_posts")]
     [Description("Get a number of top posts of the last day for a given subreddit")]
-    public async Task<string> GetRedditTopPostsAsync(string subredditName, int limit = 5, RedditTimespan timespan = RedditTimespan.Day)
+    public async Task<string> GetRedditPostsAsync(string subredditName, int limit = 5, RedditSort sort = RedditSort.Top, RedditTimespan timespan = RedditTimespan.Day)
     {
         try
         {
-            var posts = await FetchTopPostsAsync(subredditName, limit, timespan).ConfigureAwait(false);
-            
-            var timespanLabel = timespan switch
-            {
-                RedditTimespan.Hour => "last hour",
-                RedditTimespan.Day => "last 24 hours",
-                RedditTimespan.Week => "last week",
-                RedditTimespan.Month => "last month",
-                RedditTimespan.Year => "last year",
-                RedditTimespan.All => "all time",
-                _ => "last 24 hours"
-            };
-            
+            var posts = await FetchPostsAsync(subredditName, limit, sort, timespan).ConfigureAwait(false);
+
             StringBuilder contentBuilder = new();
-            contentBuilder.AppendLine($"Top {limit} posts in r/{subredditName} ({timespanLabel}):");
-            
             if (posts.Count == 0)
             {
                 contentBuilder.AppendLine("*There were no new top posts today.*");
@@ -119,7 +160,7 @@ public class RedditPlugin
             foreach (var post in posts)
             {
                 var postUrl = $"https://www.reddit.com{post.Permalink}";
-                contentBuilder.AppendLine($"- {post.Title} ({postUrl})");
+                contentBuilder.AppendLine($"- {post.Title} ({postUrl}) - subreddit r/{post.SubredditName}");
                 
                 if (!string.IsNullOrWhiteSpace(post.Selftext))
                 {

@@ -246,11 +246,9 @@ public partial class WernstromService
         }
 
         var redditPlugin = new RedditPlugin(NullLogger<RedditPlugin>.Instance, HttpClientFactory);
-        var worldNews = await redditPlugin.GetRedditTopPostsAsync("worldnews", 3).ConfigureAwait(false);
-        var futurology = await redditPlugin.GetRedditTopPostsAsync("futurology", 2).ConfigureAwait(false);
-        var technology = await redditPlugin.GetRedditTopPostsAsync("technology", 2).ConfigureAwait(false);
-        var science = await redditPlugin.GetRedditTopPostsAsync("science", 2).ConfigureAwait(false);
-        var economy = await redditPlugin.GetRedditTopPostsAsync("economics", 2).ConfigureAwait(false);
+        var news = await redditPlugin.GetRedditPostsAsync("worldnews+europe+economics+germany", 5).ConfigureAwait(false);
+        var general = await redditPlugin.GetRedditPostsAsync("futurology+science", 3).ConfigureAwait(false);
+        var tech = await redditPlugin.GetRedditPostsAsync("technology+amd+hardware+pcmasterrace+selfhosted", 5).ConfigureAwait(false);
 
         List<Message> history = new();
         /*
@@ -263,31 +261,21 @@ public partial class WernstromService
 
         var developerMessage = $"""
             {GENERIC_INSTRUCTION}
-            *** It is time to generate a daily good morning message (Sent every day at 8 o'clock in the morning). ***
+            *** It is time to generate a daily good morning message (Sent at 8 o'clock). ***
             Today is {DateTime.Now:dddd, MMMM dd, yyyy}.
             Your message should be short and concise.
             Start with an enthusiastic greeting. You will be provided with some top news from various sources.
             Include what you deem interesting for the channel users from the news, the news may have links associated which you can
             include as masked links into the news title
-            Do not include more than 4 news items in total.
-            If there are no interesting or significant news included, you may just generate the greeting and be done quickly.
-            When choosing articles, rate them based on their significance and relevance to a tech-savvy audience.
+            Always return 2-5 news items, each formatted on a single line like this:
+            - [News Title](https://linkto.news): Short comment about the news.
             Do not end the message with a signature or conclusion.
             You'll be given several news sources provided as user messages.
-            A generic example on how the response should be structured:
-            ```
-            (Good morning message)
-            - [News 1 Title](https://linkto.news1): Kurzkommentar zu News 1.
-            - News 2 Title without a link: Kurzkommentar zu News 2.
-            - [News 3 Title](https://linkto.news3): Kurzkommentar zu News 3.
-            ```
             """;
 
-        history.Add(Message.FromText(Role.User, worldNews));
-        history.Add(Message.FromText(Role.User, futurology));
-        history.Add(Message.FromText(Role.User, technology));
-        history.Add(Message.FromText(Role.User, science));
-        history.Add(Message.FromText(Role.User, economy));
+        history.Add(Message.FromText(Role.User, news));
+        history.Add(Message.FromText(Role.User, general));
+        history.Add(Message.FromText(Role.User, tech));
 
         var response = await ChatClient.CallAsync(developerMessage, history, LeetParameters).ConfigureAwait(false);
         if (string.IsNullOrEmpty(response))

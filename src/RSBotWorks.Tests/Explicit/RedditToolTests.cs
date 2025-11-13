@@ -20,7 +20,7 @@ public class RedditToolTests
 
         var redditPlugin = new RedditPlugin(NullLogger<RedditPlugin>.Instance, httpClientFactory);
 
-        var result = await redditPlugin.GetRedditTopPostsAsync("worldnews", 3);
+        var result = await redditPlugin.GetRedditPostsAsync("worldnews", 3);
         Console.WriteLine(result);
         await Assert.That(result).IsNotEmpty();
     }
@@ -33,7 +33,7 @@ public class RedditToolTests
 
         var redditPlugin = new RedditPlugin(NullLogger<RedditPlugin>.Instance, httpClientFactory);
 
-        var result = await redditPlugin.FetchTopPostsAsync("fefe_blog_interim", 3, RedditTimespan.Week);
+        var result = await redditPlugin.FetchPostsAsync("fefe_blog_interim", 3, RedditSort.Top, RedditTimespan.Week);
         var jsonResult = JsonSerializer.Serialize(result, new JsonSerializerOptions { WriteIndented = true });
         Console.WriteLine(jsonResult);
         await Assert.That(result).IsNotEmpty();
