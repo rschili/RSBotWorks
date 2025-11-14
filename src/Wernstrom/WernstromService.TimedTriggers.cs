@@ -261,16 +261,13 @@ public partial class WernstromService
 
         var developerMessage = $"""
             {GENERIC_INSTRUCTION}
-            *** It is time to generate a daily good morning message (Sent at 8 o'clock). ***
+            Generate a daily brief good morning message (Sent at 8 o'clock) followed by a summary of latest news.
             Today is {DateTime.Now:dddd, MMMM dd, yyyy}.
-            Your message should be short and concise.
-            Start with an enthusiastic greeting. You will be provided with some top news from various sources.
-            Include what you deem interesting for the channel users from the news, the news may have links associated which you can
-            include as masked links into the news title
+            You will be provided with some top news from various sources provided as user messages.
+            Include what you deem interesting, the news may have links associated with them.
             Always return 2-5 news items, each formatted on a single line like this:
             - [News Title](https://linkto.news): Short comment about the news.
             Do not end the message with a signature or conclusion.
-            You'll be given several news sources provided as user messages.
             """;
 
         history.Add(Message.FromText(Role.User, news));
