@@ -23,7 +23,7 @@
     <PackageReference Include="Seq.Extensions.Logging" Version="9.0.0" />
     <PackageReference Include="RSMatrix" Version="1.1.1" />
     <PackageReference Include="System.ServiceModel.Syndication" Version="10.0.0" />
-    <PackageReference Include="OpenAI" Version="2.6.0" />
+    <PackageReference Include="OpenAI" Version="2.7.0" />
   </ItemGroup>
 
 </Project>
