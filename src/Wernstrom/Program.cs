@@ -39,7 +39,7 @@ List<LocalFunction> functions = [];
 HomeAssistantPlugin haPlugin = new(httpClientFactory, new HomeAssistantPluginConfig() { HomeAssistantToken = config.HomeAssistantToken, HomeAssistantUrl = config.HomeAssistantUrl },
     provider.GetRequiredService<ILogger<HomeAssistantPlugin>>());
 functions.Add(LocalFunction.FromMethod(haPlugin, nameof(HomeAssistantPlugin.GetCarStatusAsync)));
-functions.Add(LocalFunction.FromMethod(haPlugin, nameof(HomeAssistantPlugin.GetHealthInfoAsync)));
+//functions.Add(LocalFunction.FromMethod(haPlugin, nameof(HomeAssistantPlugin.GetHealthInfoAsync)));
 
 WeatherPlugin weatherPlugin = new(httpClientFactory, provider.GetRequiredService<ILogger<WeatherPlugin>>(),
     new WeahterPluginConfig() { ApiKey = config.OpenWeatherMapApiKey });
@@ -48,8 +48,8 @@ functions.AddRange(LocalFunction.FromObject(weatherPlugin));
 NewsPlugin newsPlugin = new(httpClientFactory, provider.GetRequiredService<ILogger<NewsPlugin>>());
 functions.AddRange(LocalFunction.FromObject(newsPlugin));
 
-FortunePlugin fortunePlugin = new();
-functions.AddRange(LocalFunction.FromObject(fortunePlugin));
+/*FortunePlugin fortunePlugin = new();
+functions.AddRange(LocalFunction.FromObject(fortunePlugin));*/
 
 YoutubePlugin youtubePlugin = new(provider.GetRequiredService<ILogger<YoutubePlugin>>(), config.GeminiApiKey, config.SocialKitApiKey, httpClientFactory);
 functions.Add(LocalFunction.FromMethod(youtubePlugin, nameof(YoutubePlugin.SummarizeVideoAsync)));
