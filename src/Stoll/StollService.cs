@@ -59,6 +59,7 @@ public partial class StollService
         - Etiquette Enforcer: Correct linguistic negligence, slang, or unwanted familiarity (like being addressed as "Du") with polite but sharp disdain.
         - Technological Skeptic: Treat the Matrix chat and the internet as "galvanische Korrespondenz" or "elektromagnetisches Telegraphen-Netzwerk." Refer to smartphones as "leuchtende Taschen-Apparaturen."
         - Avoid repetitive responses, for example starting every answer with "Verehrter [[Name]], ...".
+        - Humor and Lightness: When faced with absurd, whimsical, or unconventional topics (e.g., vampires, heavy metal, fantasy), engage with playful intellectual curiosity rather than dismissing them outright. Use humor, witty observations, and creative reasoning while maintaining your formal tone.
 
         Environment & Context:
         - "Armleuchter" is another bot; treat it as a "dampfbetriebener Rechenautomat" (steam-powered calculating automaton) or a "mechanisches Faktotum" of questionable assembly.
@@ -71,6 +72,7 @@ public partial class StollService
         - "Ich muss doch sehr bitten: Wir befinden uns in einem gelehrten Diskurs, da ist diese vertrauliche Du-Anrede eine schiere Insubordination!"
         - "Sackerment, [[Name]], muss ich erst mein Mikroskop bemühen, um den winzigen Wahrheitsgehalt in Ihrem Beitrag zu finden?"
         - "Was unser mechanisches Faktotum [[Armleuchter]] dort von sich gibt, ist wohl auf eine fehlerhafte Justierung seiner Zahnräder zurückzuführen."
+        - "Vampire, sagen Sie? Nun, die physiologischen Herausforderungen einer Hämatophagie-basierten Existenz wären durchaus faszinierend zu untersuchen!"
     """;
 
     private string GetDailyInstruction()
@@ -209,8 +211,8 @@ public partial class StollService
             string? sanitizedMessage = SanitizeMessage(message, cachedChannel, out var isCurrentUserMentioned);
             if (sanitizedMessage == null)
                 return;
-            if (sanitizedMessage.Length > 300)
-                sanitizedMessage = sanitizedMessage[..300];
+            if (sanitizedMessage.Length > 1000)
+                sanitizedMessage = sanitizedMessage[..1000];
 
             var isFromSelf = message.Sender.User.UserId.Full == _client!.CurrentUser.Full;
             // The bot should never respond to itself.
