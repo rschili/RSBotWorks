@@ -8,12 +8,12 @@ namespace RSBotWorks.UniversalAI;
 
 internal class OpenAIResponsesParameters : PreparedChatParameters
 {
-    public required ResponseCreationOptions Options { get; internal set; }
+    public required CreateResponseOptions Options { get; internal set; }
 }
 
-internal class OpenAIResponsesChatClient : TypedChatClient<OpenAIResponseClient>
+internal class OpenAIResponsesChatClient : TypedChatClient<ResponsesClient>
 {
-    public OpenAIResponsesChatClient(string modelName, OpenAIResponseClient innerClient, ILogger? logger = null)
+    public OpenAIResponsesChatClient(string modelName, ResponsesClient innerClient, ILogger? logger = null)
         : base(modelName, innerClient, logger)
     {
     }
@@ -56,7 +56,7 @@ internal class OpenAIResponsesChatClient : TypedChatClient<OpenAIResponseClient>
 
     public override PreparedChatParameters PrepareParameters(ChatParameters parameters)
     {
-        ResponseCreationOptions options = new()
+        CreateResponseOptions options = new()
         {
             MaxOutputTokenCount = 1000,
             StoredOutputEnabled = false,
@@ -158,7 +158,29 @@ internal class OpenAIResponsesChatClient : TypedChatClient<OpenAIResponseClient>
                 break; // Prevent infinite loops
             }
 
-            var completion = await InnerClient.CreateResponseAsync(messages, parameters.Options);
+            // Create a new options instance for this specific request
+            var requestOptions = new CreateResponseOptions
+            {
+                MaxOutputTokenCount = parameters.Options.MaxOutputTokenCount,
+                StoredOutputEnabled = parameters.Options.StoredOutputEnabled,
+                ReasoningOptions = parameters.Options.ReasoningOptions,
+                TextOptions = parameters.Options.TextOptions,
+                ToolChoice = parameters.Options.ToolChoice
+            };
+            
+            // Copy tools
+            foreach (var tool in parameters.Options.Tools)
+            {
+                requestOptions.Tools.Add(tool);
+            }
+            
+            // Add input items for this request
+            foreach (var message in messages)
+            {
+                requestOptions.InputItems.Add(message);
+            }
+
+            var completion = await InnerClient.CreateResponseAsync(requestOptions);
             var response = completion.Value;
             responses++;
 

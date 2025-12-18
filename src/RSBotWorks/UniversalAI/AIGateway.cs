@@ -26,7 +26,7 @@ public abstract class ChatClient : IDisposable
 
     public static ChatClient CreateOpenAIResponsesClient(string modelName, string apiKey, ILogger? logger = null)
     {
-        var innerClient = new OpenAI.Responses.OpenAIResponseClient(modelName, apiKey);
+        var innerClient = new OpenAI.Responses.ResponsesClient(modelName, apiKey);
         return new OpenAIResponsesChatClient(modelName, innerClient, logger);
     }
 
