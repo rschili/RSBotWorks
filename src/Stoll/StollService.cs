@@ -116,7 +116,6 @@ public partial class StollService
         {
             EnableWebSearch = true,
             MaxTokens = 1000,
-            Temperature = 0.7m,
             ToolChoiceType = ToolChoiceType.Auto,
             AvailableLocalFunctions = LocalFunctions,
         };

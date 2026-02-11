@@ -29,7 +29,6 @@ public partial class WernstromService
         {
             ToolChoiceType = ToolChoiceType.None,
             MaxTokens = 1000,
-            Temperature = 0.6m
         };
         return ChatClient.PrepareParameters(parameters);
     }

@@ -106,7 +106,6 @@ public partial class WernstromService : IDisposable
         {
             EnableWebSearch = true,
             MaxTokens = 1000,
-            Temperature = 0.9m,
             ToolChoiceType = ToolChoiceType.Auto,
             AvailableLocalFunctions = LocalFunctions,
         };
