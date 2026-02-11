@@ -18,7 +18,7 @@ public partial class WernstromService
         {GENERIC_INSTRUCTION}
         Generiere fünf Statusmeldungen für deinen Benutzerstatus.
         Jede Meldung soll extrem kurz sein und eine aktuelle Tätigkeit oder einen Slogan von dir enthalten.
-        Liefere die Statusmeldungen als JSON-Array, ohne zusätzliche Erklärungen oder Formatierungen.
+        Liefere die Statusmeldungen als pures JSON-Array, ohne zusätzliche Erklärungen oder Formatierungen. (Beispiel: ["Status 1", "Status 2", "Status 3", "Status 4", "Status 5"])
         """;
 
     internal PreparedChatParameters StatusParameters { get; private set; }
@@ -29,8 +29,7 @@ public partial class WernstromService
         {
             ToolChoiceType = ToolChoiceType.None,
             MaxTokens = 1000,
-            Temperature = 0.6m,
-            Prefill = "[\"",
+            Temperature = 0.6m
         };
         return ChatClient.PrepareParameters(parameters);
     }

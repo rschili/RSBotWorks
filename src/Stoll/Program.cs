@@ -27,7 +27,7 @@ using var serviceProvider = services.BuildServiceProvider();
 
 var httpClientFactory = serviceProvider.GetRequiredService<IHttpClientFactory>();
 
-using var chatClient = ChatClient.CreateAnthropicClient(/*AnthropicModels.Claude4Sonnet*/ "claude-sonnet-4-5-20250929", config.ClaudeApiKey, httpClientFactory, serviceProvider.GetRequiredService<ILogger<ChatClient>>());
+using var chatClient = ChatClient.CreateAnthropicClient("claude-opus-4-6" /*"claude-sonnet-4-5-20250929"*/, config.ClaudeApiKey, httpClientFactory, serviceProvider.GetRequiredService<ILogger<ChatClient>>());
 //using var chatClient = ChatClient.CreateOpenAIResponsesClient(OpenAIModel.GPT5, config.OpenAiApiKey, serviceProvider.GetRequiredService<ILogger<ChatClient>>());
 
 List<LocalFunction> functions = [];

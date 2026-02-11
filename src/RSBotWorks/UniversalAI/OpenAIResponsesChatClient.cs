@@ -39,12 +39,6 @@ internal class OpenAIResponsesChatClient : TypedChatClient<ResponsesClient>
                 messages.Add(InputToMessage(input));
             }
 
-            // Add prefill if specified
-            if (parameters.OriginalParameters.Prefill != null)
-            {
-                messages.Add(ResponseItem.CreateAssistantMessageItem(parameters.OriginalParameters.Prefill));
-            }
-
             return await LoopToCompletion(messages, openAIParameters);
         }
         catch (Exception ex)
@@ -144,11 +138,6 @@ internal class OpenAIResponsesChatClient : TypedChatClient<ResponsesClient>
         int responses = 1;
         int toolCalls = 0;
         var result = new StringBuilder();
-
-        /*if (parameters.OriginalParameters.Prefill != null)
-        {
-            result.Append(parameters.OriginalParameters.Prefill);
-        }*/
 
         while (true)
         {

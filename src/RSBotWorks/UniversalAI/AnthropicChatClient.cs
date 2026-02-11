@@ -58,11 +58,6 @@ internal class AnthropicChatClient : TypedChatClient<AnthropicClient>
             }
 
             StringBuilder textResponse = new StringBuilder();
-            if (parameters.OriginalParameters.Prefill != null)
-            {
-                message.Messages.Add(new Anthropic.SDK.Messaging.Message(RoleType.Assistant, parameters.OriginalParameters.Prefill));
-                textResponse.Append(parameters.OriginalParameters.Prefill);
-            }
 
             return await LoopToCompletion(message, anthropicParameters, textResponse);
         }

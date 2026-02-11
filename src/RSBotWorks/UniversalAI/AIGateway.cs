@@ -123,9 +123,4 @@ public record ChatParameters
     public bool EnableWebSearch { get; set; } = false;
 
     public IList<LocalFunction>? AvailableLocalFunctions { get; set; }
-
-    /// <summary>
-    /// Can be used to prefill the response, this text will always be included in the response.
-    /// </summary>
-    public string? Prefill { get; set; }
 }
