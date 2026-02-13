@@ -18,6 +18,13 @@
             "type": "dotnet",
             "request": "launch",
             "projectPath": "${workspaceFolder}/src/RSBotWorks.Tests/RSBotWorks.Tests.csproj"
+        },
+        {
+            "name": "SaneAI Demo",
+            "type": "dotnet",
+            "request": "launch",
+            "projectPath": "${workspaceFolder}/src/SaneAI.Demo/SaneAI.Demo.csproj",
+            "console": "integratedTerminal"
         }
     ]
 }

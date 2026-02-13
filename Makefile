@@ -18,5 +18,8 @@ test:
 test-integration:
 	cd src/RSBotWorks.Tests/ && dotnet run --treenode-filter /*/RSBotWorks.Tests.Integration/*/* --disable-logo --output Detailed
 
+demo:
+	cd src/SaneAI.Demo && dotnet run
+
 ide:
 	code .
