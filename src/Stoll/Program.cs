@@ -76,7 +76,7 @@ public static class BuilderExtensions
         builder.AddFilter(typeof(NewsPlugin).FullName, LogLevel.Information);
         builder.AddFilter(typeof(HomeAssistantPlugin).FullName, LogLevel.Information);
         builder.AddFilter("System.Net.Http", LogLevel.Warning);
-        builder.AddFilter(typeof(StollService).FullName, LogLevel.Warning);
+        builder.AddFilter(typeof(StollService).FullName, LogLevel.Information);
         builder.SetMinimumLevel(LogLevel.Warning);
         builder.AddSeq(config.SeqUrl, config.SeqApiKey);
         return builder;

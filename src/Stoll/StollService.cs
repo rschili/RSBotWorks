@@ -303,7 +303,7 @@ public partial class StollService
 
             if (result.TextContent.Contains("<NO_RESPONSE>"))
             {
-                Logger.LogInformation("Chose to not respond to message: {SanitizedMessage}", sanitizedMessage.Length > 50 ? sanitizedMessage[..50] : sanitizedMessage);
+                Logger.LogInformation("[Chat] Chose not to respond to: {SanitizedMessage}", sanitizedMessage.Length > 50 ? sanitizedMessage[..50] : sanitizedMessage);
                 // Store the NO_RESPONSE in history so the model remembers it chose to ignore this
                 StoreMessageHistory(author.SanitizedName, sanitizedMessage, DateTimeOffset.Now, "<NO_RESPONSE>");
                 return;
@@ -313,6 +313,7 @@ public partial class StollService
 
             // Store the message history entry
             StoreMessageHistory(author.SanitizedName, sanitizedMessage, DateTimeOffset.Now, response);
+            Logger.LogInformation("[Chat] Responded to {Author}: {SanitizedMessage}", author.SanitizedName, sanitizedMessage.Length > 50 ? sanitizedMessage[..50] : sanitizedMessage);
 
             IList<MatrixId> mentions = [];
             response = HandleMentions(response, channel, mentions).Trim();
@@ -328,12 +329,13 @@ public partial class StollService
         }
         catch (AnthropicApiException ex)
         {
-            Logger.LogError(ex, "Anthropic API error ({ErrorType}) during chat. Message: {Message}. Curl: {Curl}",
-                ex.ErrorType, sanitizedMessage.Length > 100 ? sanitizedMessage[..100] : sanitizedMessage, ex.ToCurl());
+            Logger.LogError(ex, "[Chat] Anthropic API error ({ErrorType}) during chat. Message: {Message}. ErrorBody: {ErrorBody}. Curl: {Curl}",
+                ex.ErrorType, sanitizedMessage.Length > 100 ? sanitizedMessage[..100] : sanitizedMessage, ex.ErrorBody, ex.ToCurl());
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "An error occurred during the AI call. Message: {Message}", sanitizedMessage.Length > 100 ? sanitizedMessage[..100] : sanitizedMessage);
+            Logger.LogError(ex, "[Chat] Error during AI call ({ExceptionType}): {ExceptionMessage}. Input: {Message}",
+                ex.GetType().Name, ex.Message, sanitizedMessage.Length > 100 ? sanitizedMessage[..100] : sanitizedMessage);
         }
     }
 

@@ -332,7 +332,7 @@ public partial class WernstromService : IDisposable
 
             if (result.TextContent.Contains("<NO_RESPONSE>"))
             {
-                Logger.LogInformation("Chose to not respond to message: {Message}", arg.Content.Substring(0, Math.Min(arg.Content.Length, 100)));
+                Logger.LogInformation("[Chat] Chose not to respond to: {Message}", arg.Content.Substring(0, Math.Min(arg.Content.Length, 100)));
                 var emoji = new Emoji(NoReactionEmoji);
                 await arg.AddReactionAsync(emoji).ConfigureAwait(false);
                 return;
@@ -345,16 +345,18 @@ public partial class WernstromService : IDisposable
                 ? new MessageReference(arg.Id)
                 : null;
 
+            Logger.LogInformation("[Chat] Responded to {Author}: {Message}", arg.Author.Username, arg.Content.Substring(0, Math.Min(arg.Content.Length, 100)));
             await arg.Channel.SendMessageAsync(text, messageReference: messageReference).ConfigureAwait(false);
         }
         catch (AnthropicApiException ex)
         {
-            Logger.LogError(ex, "Anthropic API error ({ErrorType}) during chat. Message: {Message}. Curl: {Curl}",
-                ex.ErrorType, arg.Content.Substring(0, Math.Min(arg.Content.Length, 100)), ex.ToCurl());
+            Logger.LogError(ex, "[Chat] Anthropic API error ({ErrorType}) during chat. Message: {Message}. ErrorBody: {ErrorBody}. Curl: {Curl}",
+                ex.ErrorType, arg.Content.Substring(0, Math.Min(arg.Content.Length, 100)), ex.ErrorBody, ex.ToCurl());
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "An error occurred during the AI call. Message: {Message}", arg.Content.Substring(0, Math.Min(arg.Content.Length, 100)));
+            Logger.LogError(ex, "[Chat] Error during AI call ({ExceptionType}): {ExceptionMessage}. Input: {Message}",
+                ex.GetType().Name, ex.Message, arg.Content.Substring(0, Math.Min(arg.Content.Length, 100)));
         }
     }
 
