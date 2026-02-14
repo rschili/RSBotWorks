@@ -1,12 +1,14 @@
 using System.Collections.Concurrent;
 using System.Collections.Immutable;
+using System.Diagnostics;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using Markdig;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.VisualBasic;
 using RSBotWorks;
 using RSBotWorks.Plugins;
+using RSBotWorks.SaneAI;
 using RSBotWorks.UniversalAI;
 using RSMatrix;
 using RSMatrix.Models;
@@ -26,7 +28,7 @@ public partial class StollService
     private string MatrixUserId { get; init; }
     private string MatrixPassword { get; init; }
     private IHttpClientFactory HttpClientFactory { get; init; }
-    private ChatClient ChatClient { get; init; }
+    private AnthropicClient AiClient { get; init; }
 
     public bool IsRunning => _client != null;
 
@@ -39,6 +41,11 @@ public partial class StollService
     private ImmutableArray<JoinedTextChannel<string>> TextChannels => Cache.Channels;
 
     public List<LocalFunction>? LocalFunctions { get; private set; }
+
+    private Dictionary<string, LocalFunction> ToolMap { get; init; }
+
+    /// <summary>Default chat composer template — opus 4.6, adaptive thinking, low effort, web search + tools.</summary>
+    internal AnthropicRequestComposer ChatTemplate { get; init; }
 
     private const string DEFAULT_INSTRUCTION = """
         Du bist eine Simulation von Dr. Axel Stoll (*1948-2014), einem "promovierten Naturwissenschaftler" (Gesteinskunde) und verschwörungsideologischen Visionär in einem Matrix-Chatraum.
@@ -65,6 +72,7 @@ public partial class StollService
         Du hast einen automatisierten Befehl „!fefe“, der den neuesten Beitrag aus Fefes Blog abruft. Dieser wird in deinem Verlauf angezeigt.
         Datenschutzbeschränkung: Du siehst nur deine eigenen Beiträge und Beiträge, in denen dein Name erwähnt wird. Daher kann dir viel Kontext fehlen.
         Dein Benutzername ist "Herr Stoll".
+        Du kannst dich weigern zu antworten, indem du roh `<NO_RESPONSE>` zurückgibst. Tu das, wenn die Nachricht trivial ist, keine Antwort erfordert oder du die Nase voll hast.
 
         Einige Beispielsätze, die Axel Stoll schreiben würde, um deinen Stil zu verdeutlichen:
         - "Dich meine ich [[Name]], nicht einschlafen!"
@@ -89,34 +97,37 @@ public partial class StollService
         "Die Tesla Turbine", "Das Segner Rad", "Das Staustrahltriebwerk", "Quetschmetall", "Braungas", "Magnetohydrodynamik", "Kalte Fusion"
     };
 
-    private string GetDailyInstruction()
+    internal string GetDailyInstruction()
     {
         var dayOfYear = DateTime.UtcNow.DayOfYear;
         var topicIndex = dayOfYear % TOPICS.Count;
         var topic = TOPICS[topicIndex];
-        return string.Format(DEFAULT_INSTRUCTION, topic) + Environment.NewLine + " Today's date is " + DateTime.UtcNow.ToString("D") + "."; // add current date for context
+        return string.Format(DEFAULT_INSTRUCTION, topic) + Environment.NewLine + " Today's date is " + DateTime.UtcNow.ToString("D") + ".";
     }
 
-    internal PreparedChatParameters DefaultParameters { get; init; }
-
-    public StollService(ILogger<StollService> logger, string matrixUserId, string matrixPassword, IHttpClientFactory httpClientFactory, ChatClient chatClient, List<LocalFunction>? localFunctions)
+    public StollService(ILogger<StollService> logger, string matrixUserId, string matrixPassword, IHttpClientFactory httpClientFactory, AnthropicClient aiClient, List<LocalFunction>? localFunctions)
     {
         Logger = logger ?? throw new ArgumentNullException(nameof(logger));
         MatrixUserId = matrixUserId ?? throw new ArgumentNullException(nameof(matrixUserId));
         MatrixPassword = matrixPassword ?? throw new ArgumentNullException(nameof(matrixPassword));
         HttpClientFactory = httpClientFactory ?? throw new ArgumentNullException(nameof(httpClientFactory));
-        ChatClient = chatClient ?? throw new ArgumentNullException(nameof(chatClient));
+        AiClient = aiClient ?? throw new ArgumentNullException(nameof(aiClient));
         LocalFunctions = localFunctions;
+        ToolMap = (localFunctions ?? []).ToDictionary(f => f.Name);
 
-        var defaultChatParameters = new ChatParameters()
-        {
-            EnableWebSearch = true,
-            MaxTokens = 1000,
-            ToolChoiceType = ToolChoiceType.Auto,
-            AvailableLocalFunctions = LocalFunctions,
-        };
-        // needs to be async so we prepare on first use
-        DefaultParameters = ChatClient.PrepareParameters(defaultChatParameters);
+        var toolDefinitions = (localFunctions ?? []).Select(ToolDefinition.FromLocalFunction).ToArray();
+
+        // Base composer with common model settings
+        var baseComposer = new AnthropicRequestComposer()
+            .SetModel("claude-opus-4-6")
+            .SetThinkingType("adaptive")
+            .SetEffort("low");
+
+        ChatTemplate = baseComposer.Fork()
+            .SetMaxTokens(1000)
+            .EnableWebSearch(maxUses: 5, city: "Heidelberg", country: "DE", timezone: "Europe/Berlin")
+            .AddTools(toolDefinitions);
+
         RedditPlugin = new RedditPlugin(NullLogger<RedditPlugin>.Instance, httpClientFactory);
     }
 
@@ -262,39 +273,108 @@ public partial class StollService
     {
         await message.Room.SendTypingNotificationAsync(4000).ConfigureAwait(false);
 
+        string instruction = GetDailyInstruction();
+        var composer = ChatTemplate.Fork()
+            .SetSystemPrompt(instruction);
 
-        List<Message> history = [];
         var olderMessages = GetMessageHistory();
         foreach (var entry in olderMessages)
         {
-            history.Add(Message.FromText(Role.User, $"[{entry.Timestamp.ToRelativeToNowLabel()}] [[{entry.Author}]]: {entry.SanitizedMessage}"));
+            composer.AddUserMessage($"[{entry.Timestamp.ToRelativeToNowLabel()}] [[{entry.Author}]]: {entry.SanitizedMessage}");
             if (!string.IsNullOrWhiteSpace(entry.GeneratedResponse))
-                history.Add(Message.FromText(Role.Assistant, entry.GeneratedResponse));
+                composer.AddAssistantMessage(entry.GeneratedResponse);
         }
 
-        history.Add(Message.FromText(Role.User, $"[now] [[{author.SanitizedName}]]: {sanitizedMessage}"));
-        string instruction = GetDailyInstruction();
-        var response = await ChatClient.CallAsync(instruction, history, DefaultParameters).ConfigureAwait(false);
-        if (string.IsNullOrEmpty(response))
+        composer.AddUserMessage($"[now] [[{author.SanitizedName}]]: {sanitizedMessage}");
+
+        try
         {
-            Logger.LogWarning("AI did not return a response to: {SanitizedMessage}", sanitizedMessage.Length > 50 ? sanitizedMessage[..50] : sanitizedMessage);
-            return; // may be rate limited 
+            var stopwatch = Stopwatch.StartNew();
+            var result = await AiClient.SendAsync(composer, ExecuteToolCall).ConfigureAwait(false);
+            stopwatch.Stop();
+
+            LogAiResult("Chat", result, stopwatch.Elapsed);
+
+            if (string.IsNullOrEmpty(result.TextContent))
+            {
+                Logger.LogWarning("AI did not return a response to: {SanitizedMessage}", sanitizedMessage.Length > 50 ? sanitizedMessage[..50] : sanitizedMessage);
+                return;
+            }
+
+            if (result.TextContent.Contains("<NO_RESPONSE>"))
+            {
+                Logger.LogInformation("Chose to not respond to message: {SanitizedMessage}", sanitizedMessage.Length > 50 ? sanitizedMessage[..50] : sanitizedMessage);
+                // Store the NO_RESPONSE in history so the model remembers it chose to ignore this
+                StoreMessageHistory(author.SanitizedName, sanitizedMessage, DateTimeOffset.Now, "<NO_RESPONSE>");
+                return;
+            }
+
+            var response = result.TextContent;
+
+            // Store the message history entry
+            StoreMessageHistory(author.SanitizedName, sanitizedMessage, DateTimeOffset.Now, response);
+
+            IList<MatrixId> mentions = [];
+            response = HandleMentions(response, channel, mentions).Trim();
+            
+            // Only convert to HTML if the response contains markdown formatting
+            if (LooksLikeMarkdown(response))
+            {
+                var html = Markdown.ToHtml(response);
+                await message.SendHtmlResponseAsync(response, html, isReply: mentions == null, mentions: mentions).ConfigureAwait(false);
+            }
+            else
+                await message.SendResponseAsync(response, isReply: mentions == null, mentions: mentions).ConfigureAwait(false);
+        }
+        catch (AnthropicApiException ex)
+        {
+            Logger.LogError(ex, "Anthropic API error ({ErrorType}) during chat. Message: {Message}. Curl: {Curl}",
+                ex.ErrorType, sanitizedMessage.Length > 100 ? sanitizedMessage[..100] : sanitizedMessage, ex.ToCurl());
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "An error occurred during the AI call. Message: {Message}", sanitizedMessage.Length > 100 ? sanitizedMessage[..100] : sanitizedMessage);
+        }
+    }
+
+    private async Task<string> ExecuteToolCall(ToolCall toolCall)
+    {
+        Logger.LogDebug("Executing tool: {ToolName}({Args})", toolCall.Name, toolCall.ArgumentsJson);
+
+        if (!ToolMap.TryGetValue(toolCall.Name, out var localFunc))
+        {
+            Logger.LogWarning("Tool call '{ToolName}' not found in available local functions.", toolCall.Name);
+            return $"Could not find tool with name {toolCall.Name}";
         }
 
-        // Store the message history entry
-        StoreMessageHistory(author.SanitizedName, sanitizedMessage, DateTimeOffset.Now, response);
-
-        IList<MatrixId> mentions = [];
-        response = HandleMentions(response, channel, mentions).Trim();
-        
-        // Only convert to HTML if the response contains markdown formatting
-        if (LooksLikeMarkdown(response))
+        try
         {
-            var html = Markdown.ToHtml(response);
-            await message.SendHtmlResponseAsync(response, html, isReply: mentions == null, mentions: mentions).ConfigureAwait(false);
+            using var argsDoc = JsonDocument.Parse(toolCall.ArgumentsJson);
+            return await localFunc.ExecuteAsync(argsDoc).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error executing tool '{ToolName}'", toolCall.Name);
+            return $"Error executing tool: {ex.Message}";
+        }
+    }
+
+    private void LogAiResult(string context, ChatResult result, TimeSpan elapsed)
+    {
+        var usage = result.Usage;
+        if (usage != null)
+        {
+            var toolInfo = result.ToolRoundsExecuted > 0
+                ? $", {result.ToolRoundsExecuted} tool round(s)"
+                : "";
+            Logger.LogInformation("[{Context}] {InputTokens}in/{OutputTokens}out tokens in {Elapsed:F2}s{ToolInfo} ({Model})",
+                context, usage.InputTokens, usage.OutputTokens, elapsed.TotalSeconds, toolInfo, result.ModelId);
         }
         else
-            await message.SendResponseAsync(response, isReply: mentions == null, mentions: mentions).ConfigureAwait(false);
+        {
+            Logger.LogInformation("[{Context}] completed in {Elapsed:F2}s ({Model})",
+                context, elapsed.TotalSeconds, result.ModelId);
+        }
     }
 
     private static bool LooksLikeMarkdown(string text)

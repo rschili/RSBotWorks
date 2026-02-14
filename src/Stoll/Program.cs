@@ -3,9 +3,9 @@ using Stoll;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using RSBotWorks;
+using RSBotWorks.SaneAI;
 using RSBotWorks.UniversalAI;
 using RSBotWorks.Plugins;
-using Anthropic.SDK.Constants;
 
 Console.WriteLine($"Current user: {Environment.UserName}");
 Console.WriteLine("Loading config...");
@@ -27,8 +27,8 @@ using var serviceProvider = services.BuildServiceProvider();
 
 var httpClientFactory = serviceProvider.GetRequiredService<IHttpClientFactory>();
 
-using var chatClient = ChatClient.CreateAnthropicClient("claude-opus-4-6" /*"claude-sonnet-4-5-20250929"*/, config.ClaudeApiKey, httpClientFactory, serviceProvider.GetRequiredService<ILogger<ChatClient>>());
-//using var chatClient = ChatClient.CreateOpenAIResponsesClient(OpenAIModel.GPT5, config.OpenAiApiKey, serviceProvider.GetRequiredService<ILogger<ChatClient>>());
+var executor = new DefaultHttpExecutor(httpClientFactory);
+var aiClient = new AnthropicClient(config.ClaudeApiKey, executor);
 
 List<LocalFunction> functions = [];
 WeatherPlugin weatherPlugin = new(httpClientFactory, serviceProvider.GetRequiredService<ILogger<WeatherPlugin>>(),
@@ -39,7 +39,7 @@ NewsPlugin newsPlugin = new(httpClientFactory, serviceProvider.GetRequiredServic
 functions.AddRange(LocalFunction.FromObject(newsPlugin));
 
 StollService stoll = new(serviceProvider.GetRequiredService<ILogger<StollService>>(),
-    config.MatrixUserId, config.MatrixPassword, httpClientFactory, chatClient, functions);
+    config.MatrixUserId, config.MatrixPassword, httpClientFactory, aiClient, functions);
 
 try
 {
@@ -75,7 +75,7 @@ public static class BuilderExtensions
         builder.AddFilter(typeof(WeatherPlugin).FullName, LogLevel.Information);
         builder.AddFilter(typeof(NewsPlugin).FullName, LogLevel.Information);
         builder.AddFilter(typeof(HomeAssistantPlugin).FullName, LogLevel.Information);
-        builder.AddFilter(typeof(LoggingHttpHandler).FullName, LogLevel.Information);
+        builder.AddFilter("System.Net.Http", LogLevel.Warning);
         builder.AddFilter(typeof(StollService).FullName, LogLevel.Warning);
         builder.SetMinimumLevel(LogLevel.Warning);
         builder.AddSeq(config.SeqUrl, config.SeqApiKey);
