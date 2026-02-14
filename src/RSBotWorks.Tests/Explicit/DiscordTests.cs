@@ -1,8 +1,10 @@
 using NSubstitute;
 using DotNetEnv.Extensions;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using TUnit.Core.Logging;
 using System.Globalization;
+using RSBotWorks.SaneAI;
 using RSBotWorks.UniversalAI;
 using Wernstrom;
 
@@ -17,29 +19,31 @@ public class DiscordTests
         CultureInfo.DefaultThreadCurrentCulture = cultureInfo;
         CultureInfo.DefaultThreadCurrentUICulture = cultureInfo;
         var env = DotNetEnv.Env.NoEnvVars().TraversePath().Load().ToDotEnvDictionary();
-        string openAiKey = env["OPENAI_API_KEY"];
-        if (string.IsNullOrEmpty(openAiKey))
+        string claudeKey = env["CLAUDE_API_KEY"];
+        if (string.IsNullOrEmpty(claudeKey))
         {
-            Assert.Fail("OPENAI_API_KEY is not set in the .env file.");
+            Assert.Fail("CLAUDE_API_KEY is not set in the .env file.");
             return;
         }
 
         var sql = await SqliteMessageCache.CreateAsync(":memory:"); ;
         await Assert.That(sql).IsNotNull();
 
-        List<LocalFunction> tools = [];
-        var httpClientFactory = Substitute.For<IHttpClientFactory>();
-        var chatClient = ChatClient.CreateOpenAIClient(OpenAIModel.GPT41, openAiKey);
+        var services = new ServiceCollection();
+        services.AddHttpClient();
+        using var provider = services.BuildServiceProvider();
+        var httpClientFactory = provider.GetRequiredService<IHttpClientFactory>();
 
-        var config = Wernstrom.Config.LoadFromEnvFile();
-        await Assert.That(config).IsNotNull();
+        var executor = new DefaultHttpExecutor(httpClientFactory);
+        var aiClient = new AnthropicClient(claudeKey, executor);
+
         var wernstromConfig = new WernstromServiceConfig()
         {
             DiscordToken = "",
             BrueckeId = 32434534ul,
             MaschinenraumId = 32434535ul
         };
-        var discordService = new Wernstrom.WernstromService(NullLogger<Wernstrom.WernstromService>.Instance, httpClientFactory, wernstromConfig, chatClient, null);
+        var discordService = new Wernstrom.WernstromService(NullLogger<Wernstrom.WernstromService>.Instance, httpClientFactory, wernstromConfig, aiClient, null);
 
         var statusMessages = await discordService.CreateNewStatusMessages();
         await Assert.That(statusMessages).IsNotNull();

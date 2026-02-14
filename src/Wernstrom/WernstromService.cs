@@ -10,6 +10,7 @@ using Discord.WebSocket;
 using Microsoft.Extensions.Logging;
 using RSBotWorks;
 using RSBotWorks.Plugins;
+using RSBotWorks.SaneAI;
 using RSBotWorks.UniversalAI;
 
 namespace Wernstrom;
@@ -29,7 +30,7 @@ public partial class WernstromService : IDisposable
 
     public WernstromServiceConfig Config { get; init; }
 
-    private ChatClient ChatClient { get; init; }
+    private AnthropicClient AiClient { get; init; }
 
     public bool IsRunning { get; private set; }
 
@@ -43,7 +44,9 @@ public partial class WernstromService : IDisposable
 
     public ImmutableArray<JoinedTextChannel<ulong>> TextChannels => Cache.Channels;
 
-    public List<LocalFunction>? LocalFunctions { get; private set; }
+    private List<LocalFunction> LocalFunctions { get; init; }
+
+    private Dictionary<string, LocalFunction> ToolMap { get; init; }
 
     internal const string GENERIC_INSTRUCTION = $"""
         Du bist eine Simulation von Professor Ogden Wernstrom aus der Serie Futurama (spielt etwa im Jahr 3007) in einem Discord Chat.
@@ -83,17 +86,25 @@ public partial class WernstromService : IDisposable
         - "Ich habe dir zugehört und bin nicht beeindruckt."
         """;
 
-    internal PreparedChatParameters DefaultParameters { get; init; }
+    /// <summary>Default chat composer template — opus 4.6, adaptive thinking, low effort, web search + tools.</summary>
+    internal AnthropicRequestComposer ChatTemplate { get; init; }
 
-    public WernstromService(ILogger<WernstromService> logger, IHttpClientFactory httpClientFactory, WernstromServiceConfig config, ChatClient chatClient, List<LocalFunction>? localFunctions)
+    /// <summary>Reaction composer template — tiny MaxTokens, no tools, no web search.</summary>
+    internal AnthropicRequestComposer ReactionTemplate { get; init; }
+
+    /// <summary>Status composer template — no tools, moderate tokens.</summary>
+    internal AnthropicRequestComposer StatusTemplate { get; init; }
+
+    public WernstromService(ILogger<WernstromService> logger, IHttpClientFactory httpClientFactory, WernstromServiceConfig config, AnthropicClient aiClient, List<LocalFunction>? localFunctions)
     {
         Logger = logger ?? throw new ArgumentNullException(nameof(logger));
         Config = config ?? throw new ArgumentNullException(nameof(config));
         ArgumentNullException.ThrowIfNull(DiscordToken, nameof(config.DiscordToken));
 
-        ChatClient = chatClient ?? throw new ArgumentNullException(nameof(chatClient));
+        AiClient = aiClient ?? throw new ArgumentNullException(nameof(aiClient));
         HttpClientFactory = httpClientFactory ?? throw new ArgumentNullException(nameof(httpClientFactory));
-        LocalFunctions = localFunctions;
+        LocalFunctions = localFunctions ?? [];
+        ToolMap = LocalFunctions.ToDictionary(f => f.Name);
         Emotes = new(() => BuildEmotesDictionary(), LazyThreadSafetyMode.ExecutionAndPublication);
 
         EmojiJsonList = new(() =>
@@ -102,19 +113,24 @@ public partial class WernstromService : IDisposable
             return JsonSerializer.Serialize(emotes);
         }, LazyThreadSafetyMode.ExecutionAndPublication);
 
-        var defaultChatParameters = new ChatParameters()
-        {
-            EnableWebSearch = true,
-            MaxTokens = 1000,
-            ToolChoiceType = ToolChoiceType.Auto,
-            AvailableLocalFunctions = LocalFunctions,
-        };
-        // needs to be async so we prepare on first use
-        DefaultParameters = ChatClient.PrepareParameters(defaultChatParameters);
+        var toolDefinitions = LocalFunctions.Select(ToolDefinition.FromLocalFunction).ToArray();
 
-        ReactionParameters = PrepareReactionParameters();
-        StatusParameters = PrepareStatusParameters();
-        LeetParameters = PrepareLeetParameters();
+        // Base composer with common model settings
+        var baseComposer = new AnthropicRequestComposer()
+            .SetModel("claude-opus-4-6")
+            .SetThinkingType("adaptive")
+            .SetEffort("low");
+
+        ChatTemplate = baseComposer.Fork()
+            .SetMaxTokens(1000)
+            .EnableWebSearch(maxUses: 5, city: "Heidelberg", country: "DE", timezone: "Europe/Berlin")
+            .AddTools(toolDefinitions);
+
+        ReactionTemplate = baseComposer.Fork()
+            .SetMaxTokens(50);
+
+        StatusTemplate = baseComposer.Fork()
+            .SetMaxTokens(1000);
     }
 
     public async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -254,7 +270,6 @@ public partial class WernstromService : IDisposable
             sanitizedMessage = sanitizedMessage[..1000];
 
         var isFromSelf = arg.Author.Id == DiscordClient.CurrentUser.Id;
-        //await MessageCache.AddDiscordMessageAsync(arg.Id, arg.Timestamp, arg.Author.Id, cachedUser.SanitizedName, sanitizedMessage, isFromSelf, arg.Channel.Id).ConfigureAwait(false);
 
         // The bot should never respond to itself.
         if (isFromSelf)
@@ -267,7 +282,7 @@ public partial class WernstromService : IDisposable
             {
                 if (task.Exception != null)
                 {
-                    Logger.LogError(task.Exception, "An error occurred while emoji for a message. Message: {Message}", arg.Content);
+                    Logger.LogError(task.Exception, "An error occurred while emoji for a message. Message: {Message}", arg.Content.Substring(0, Math.Min(arg.Content.Length, 100)));
                 }
             }, TaskContinuationOptions.OnlyOnFaulted);
             return;
@@ -282,45 +297,48 @@ public partial class WernstromService : IDisposable
         var liveHistory = await arg.Channel.GetMessagesAsync(arg, Direction.Before, 10, CacheMode.AllowDownload).FlattenAsync().ConfigureAwait(false);
         stopwatch.Stop();
         Logger.LogDebug("It took {Seconds:F3}s to load live history", stopwatch.Elapsed.TotalSeconds);
-        List<Message> history = [];
-        var developerMessage = CHAT_INSTRUCTION;
+
+        var systemPrompt = CHAT_INSTRUCTION;
         if (!string.IsNullOrEmpty(CurrentActivity))
         {
-            developerMessage += $"\nDeine aktuelle Aktivität: {CurrentActivity}";
+            systemPrompt += $"\nDeine aktuelle Aktivität: {CurrentActivity}";
         }
 
         stopwatch.Restart();
+        var composer = ChatTemplate.Fork()
+            .SetSystemPrompt(systemPrompt);
+
         foreach (var message in liveHistory.Reverse())
         {
-            await AddMessageToHistory(history, message, cachedChannel).ConfigureAwait(false);
+            await AddMessageToComposer(composer, message, cachedChannel).ConfigureAwait(false);
         }
-        await AddMessageToHistory(history, arg, cachedChannel).ConfigureAwait(false);
+        await AddMessageToComposer(composer, arg, cachedChannel).ConfigureAwait(false);
         stopwatch.Stop();
         Logger.LogDebug("It took {Seconds:F3}s to construct message history", stopwatch.Elapsed.TotalSeconds);
 
         try
         {
             stopwatch.Restart();
-            var response = await ChatClient.CallAsync(developerMessage, history, DefaultParameters).ConfigureAwait(false);
+            var result = await AiClient.SendAsync(composer, ExecuteToolCall).ConfigureAwait(false);
             stopwatch.Stop();
-            Logger.LogDebug("It took {Seconds:F3}s to get response from AI", stopwatch.Elapsed.TotalSeconds);
 
-            if (string.IsNullOrEmpty(response))
+            LogAiResult("Chat", result, stopwatch.Elapsed);
+
+            if (string.IsNullOrEmpty(result.TextContent))
             {
-                Logger.LogWarning($"Got an empty response to: {arg.Content.Substring(0, Math.Min(arg.Content.Length, 100))}");
-                return; // may be rate limited 
+                Logger.LogWarning("Got an empty response to: {Message}", arg.Content.Substring(0, Math.Min(arg.Content.Length, 100)));
+                return;
             }
 
-            if (response.Contains("<NO_RESPONSE>"))
+            if (result.TextContent.Contains("<NO_RESPONSE>"))
             {
                 Logger.LogInformation("Chose to not respond to message: {Message}", arg.Content.Substring(0, Math.Min(arg.Content.Length, 100)));
-                // equivalent to "🤐" (zipper-mouth face)
                 var emoji = new Emoji(NoReactionEmoji);
                 await arg.AddReactionAsync(emoji).ConfigureAwait(false);
                 return;
             }
 
-            var text = RestoreDiscordTags(response, cachedChannel, out var hasMentions).Trim();
+            var text = RestoreDiscordTags(result.TextContent, cachedChannel, out var hasMentions).Trim();
 
             // Set messageReference only if response took longer than 30 seconds
             MessageReference? messageReference = stopwatch.Elapsed.TotalSeconds > 30
@@ -329,13 +347,58 @@ public partial class WernstromService : IDisposable
 
             await arg.Channel.SendMessageAsync(text, messageReference: messageReference).ConfigureAwait(false);
         }
+        catch (AnthropicApiException ex)
+        {
+            Logger.LogError(ex, "Anthropic API error ({ErrorType}) during chat. Message: {Message}. Curl: {Curl}",
+                ex.ErrorType, arg.Content.Substring(0, Math.Min(arg.Content.Length, 100)), ex.ToCurl());
+        }
         catch (Exception ex)
         {
             Logger.LogError(ex, "An error occurred during the AI call. Message: {Message}", arg.Content.Substring(0, Math.Min(arg.Content.Length, 100)));
         }
     }
 
-    private async Task AddMessageToHistory(List<Message> history, IMessage message, JoinedTextChannel<ulong> cachedChannel)
+    private async Task<string> ExecuteToolCall(ToolCall toolCall)
+    {
+        Logger.LogDebug("Executing tool: {ToolName}({Args})", toolCall.Name, toolCall.ArgumentsJson);
+
+        if (!ToolMap.TryGetValue(toolCall.Name, out var localFunc))
+        {
+            Logger.LogWarning("Tool call '{ToolName}' not found in available local functions.", toolCall.Name);
+            return $"Could not find tool with name {toolCall.Name}";
+        }
+
+        try
+        {
+            using var argsDoc = JsonDocument.Parse(toolCall.ArgumentsJson);
+            return await localFunc.ExecuteAsync(argsDoc).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error executing tool '{ToolName}'", toolCall.Name);
+            return $"Error executing tool: {ex.Message}";
+        }
+    }
+
+    private void LogAiResult(string context, ChatResult result, TimeSpan elapsed)
+    {
+        var usage = result.Usage;
+        if (usage != null)
+        {
+            var toolInfo = result.ToolRoundsExecuted > 0
+                ? $", {result.ToolRoundsExecuted} tool round(s)"
+                : "";
+            Logger.LogInformation("[{Context}] {InputTokens}in/{OutputTokens}out tokens in {Elapsed:F2}s{ToolInfo} ({Model})",
+                context, usage.InputTokens, usage.OutputTokens, elapsed.TotalSeconds, toolInfo, result.ModelId);
+        }
+        else
+        {
+            Logger.LogInformation("[{Context}] completed in {Elapsed:F2}s ({Model})",
+                context, elapsed.TotalSeconds, result.ModelId);
+        }
+    }
+
+    private async Task AddMessageToComposer(AnthropicRequestComposer composer, IMessage message, JoinedTextChannel<ulong> cachedChannel)
     {
         var user = cachedChannel.GetUser(message.Author.Id);
         if (user == null)
@@ -347,24 +410,28 @@ public partial class WernstromService : IDisposable
         bool self = message.Author.Id == DiscordClient.CurrentUser.Id;
         if (self)
         {
-            history.Add(Message.FromText(Role.Assistant, ReplaceDiscordTags(message.Tags, message.Content, cachedChannel)));
+            composer.AddAssistantMessage(ReplaceDiscordTags(message.Tags, message.Content, cachedChannel));
         }
         else
         {
             var text = ReplaceDiscordTags(message.Tags, message.Content, cachedChannel);
             var prefix = $"[{message.Timestamp.ToRelativeToNowLabel()}] [[{user.SanitizedName}]]: ";
-            List<MessageContent> contents = [];
-            contents.Add(MessageContent.FromText($"{prefix}{text}"));
 
             var attachments = await ExtractImageAttachments(message).ConfigureAwait(false);
             if (attachments != null && attachments.Count > 0)
             {
+                var blocks = new List<MessageBlock>();
+                blocks.Add(MessageBlock.FromText($"{prefix}{text}"));
                 foreach (var attachment in attachments)
                 {
-                    contents.Add(MessageContent.FromImage(attachment.MimeType, attachment.Data));
+                    blocks.Add(MessageBlock.FromImage(attachment.MimeType, attachment.Data));
                 }
+                composer.AddUserMessage(blocks.ToArray());
             }
-            history.Add(new Message() { Role = Role.User, Content = contents });
+            else
+            {
+                composer.AddUserMessage($"{prefix}{text}");
+            }
 
             var myReactions = message.Reactions.Where(r => r.Value.IsMe).Select(r => r.Key).ToList();
 
@@ -372,15 +439,14 @@ public partial class WernstromService : IDisposable
             {
                 if (myReactions.Any(e => e.Name?.Contains(NoReactionEmoji) == true))
                 {
-                    // equivalent to "⛔" (no entry sign)
-                    history.Add(Message.FromText(Role.Assistant, "<NO_RESPONSE>"));
+                    composer.AddAssistantMessage("<NO_RESPONSE>");
                 }
                 else
                 {
                     var reactionNames = myReactions
                         .Select(e => e.Name)
                         .Where(n => n != null);
-                    history.Add(Message.FromText(Role.Assistant, $"(reacted with emojis: {string.Join(",", reactionNames)})`"));
+                    composer.AddAssistantMessage($"(reacted with emojis: {string.Join(",", reactionNames)})");
                 }
             }
         }

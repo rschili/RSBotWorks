@@ -166,7 +166,7 @@ public sealed class AnthropicRequestComposer
         };
         if (city != null || country != null)
         {
-            var loc = new JsonObject();
+            var loc = new JsonObject { ["type"] = "approximate" };
             if (city != null) loc["city"] = city;
             if (country != null) loc["country"] = country;
             if (timezone != null) loc["timezone"] = timezone;

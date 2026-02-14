@@ -11,7 +11,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using RSBotWorks;
 using RSBotWorks.Plugins;
-using RSBotWorks.UniversalAI;
+using RSBotWorks.SaneAI;
 
 namespace Wernstrom;
 
@@ -147,67 +147,6 @@ public partial class WernstromService
         }
     }
     
-
-    internal const string LEET_INSTRUCTION = $"""
-        {GENERIC_INSTRUCTION}
-        A traditional game is played in the chat every day at 13:37, in which each user sends a message.
-        A bot measures the time of the messages, and whoever is closest to 13:37 wins.
-        You've participated in the game, but user sikk has blacklisted you because you were too good.
-        Nevertheless, generate a message to be sent now at 13:37 PM.
-        Reply in a maximum of 2-3 short sentences.
-        Only reply with direct language - never use asterisks to describe actions (*clears throat*, *wags tail*, etc.).
-        You address all other participants informally.
-        Provide a reply directly as text, without a name, timestamp, header, or other formatting.
-        """;
-
-    internal PreparedChatParameters LeetParameters { get; init; }
-    private PreparedChatParameters PrepareLeetParameters()
-    {
-        ChatParameters parameters = new()
-        {
-            ToolChoiceType = ToolChoiceType.None,
-            MaxTokens = 2000,
-        };
-        return ChatClient.PrepareParameters(parameters);
-    }
-
-    private async Task PerformLeetTimeOperation()
-    {
-        if (!IsRunning)
-        {
-            Logger.LogWarning("Attempted to perform 1337 time operation while service is not running.");
-            return;
-        }
-        var response = await ChatClient.CallAsync(null, [Message.FromText(Role.User, LEET_INSTRUCTION)], LeetParameters).ConfigureAwait(false);
-        if (string.IsNullOrEmpty(response))
-        {
-            Logger.LogWarning("Got an empty response for 1337 time operation");
-            return;
-        }
-
-        var channel = await DiscordClient.GetChannelAsync(Config.BrueckeId).ConfigureAwait(false);
-        if (channel == null || channel is not ITextChannel textChannel)
-        {
-            Logger.LogError("Failed to get text channel for 1337 time operation");
-            return;
-        }
-
-        // Calculate precise timing for 13:37:00 CEST
-        var cestNow = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, CESTTimeZone);
-        var target1337 = cestNow.Date.AddHours(13).AddMinutes(37); // Today's 13:37:00 CEST
-
-        var remainingTime = target1337 - cestNow;
-        int preFireMS = DiscordClient.Latency; // Account for network delay
-        var waitTime = remainingTime.Subtract(TimeSpan.FromMilliseconds(preFireMS));
-
-        if (waitTime > TimeSpan.Zero)
-        {
-            await Task.Delay(waitTime).ConfigureAwait(false);
-        }
-
-        await textChannel.SendMessageAsync(response).ConfigureAwait(false);
-    }
-    
     private async Task SendGoodMorningMessage()
     {
         if (!IsRunning)
@@ -216,71 +155,42 @@ public partial class WernstromService
             return;
         }
 
-        /*var bruecke = await DiscordClient.GetChannelAsync(Config.BrueckeId).ConfigureAwait(false);
-        if (bruecke == null || bruecke is not ITextChannel brueckeTextChannel)
-        {
-            Logger.LogError("Failed to get text channel for good morning message context");
-            return;
-        }*/
-
         var outputChannel = await DiscordClient.GetChannelAsync(Config.MaschinenraumId).ConfigureAwait(false);
         if (outputChannel == null || outputChannel is not ITextChannel outputTextChannel)
         {
             Logger.LogError("Failed to get text channel for sending good morning message");
             return;
         }
-    
-        /*var cachedBrueckeChannel = TextChannels.FirstOrDefault(c => c.Id == brueckeTextChannel.Id);
-        if (cachedBrueckeChannel == null)
-        {
-            cachedBrueckeChannel = new JoinedTextChannel<ulong>(brueckeTextChannel.Id, brueckeTextChannel.Name, await GetChannelUsers(brueckeTextChannel).ConfigureAwait(false));
-            Cache.Channels = TextChannels.Add(cachedBrueckeChannel);
-        }*/
 
-        var cachedOutputChannel = TextChannels.FirstOrDefault(c => c.Id == outputTextChannel.Id);
-        if (cachedOutputChannel == null)
+        try
         {
-            cachedOutputChannel = new JoinedTextChannel<ulong>(outputTextChannel.Id, outputTextChannel.Name, await GetChannelUsers(outputTextChannel).ConfigureAwait(false));
-            Cache.Channels = TextChannels.Add(cachedOutputChannel);
+            var redditPlugin = new RedditPlugin(NullLogger<RedditPlugin>.Instance, HttpClientFactory);
+            var newsPosts = await redditPlugin.FetchPostsAsync("worldnews+europe+economics+germany", 2).ConfigureAwait(false);
+            var generalPosts = await redditPlugin.FetchPostsAsync("futurology+science", 2).ConfigureAwait(false);
+            var techPosts = await redditPlugin.FetchPostsAsync("technology+amd+hardware+pcmasterrace+selfhosted", 2).ConfigureAwait(false);
+
+            var allPosts = newsPosts.Concat(generalPosts).Concat(techPosts).ToList();
+
+            if (allPosts.Count == 0)
+            {
+                Logger.LogWarning("No reddit posts found for morning briefing.");
+                return;
+            }
+
+            var sb = new StringBuilder();
+            sb.AppendLine($"**Morgenbriefing — {DateTime.Now:dddd, d. MMMM yyyy}**");
+            foreach (var post in allPosts)
+            {
+                var url = $"https://www.reddit.com{post.Permalink}";
+                sb.AppendLine($"- [{post.Title}]({url}) (r/{post.SubredditName})");
+            }
+
+            await outputTextChannel.SendMessageAsync(sb.ToString(),
+                flags: MessageFlags.SuppressEmbeds | MessageFlags.SuppressNotification).ConfigureAwait(false);
         }
-
-        var redditPlugin = new RedditPlugin(NullLogger<RedditPlugin>.Instance, HttpClientFactory);
-        var news = await redditPlugin.GetRedditPostsAsync("worldnews+europe+economics+germany", 5).ConfigureAwait(false);
-        var general = await redditPlugin.GetRedditPostsAsync("futurology+science", 3).ConfigureAwait(false);
-        var tech = await redditPlugin.GetRedditPostsAsync("technology+amd+hardware+pcmasterrace+selfhosted", 5).ConfigureAwait(false);
-
-        List<Message> history = new();
-        /*
-        var liveHistory = await brueckeTextChannel.GetMessagesAsync(5, CacheMode.AllowDownload).FlattenAsync().ConfigureAwait(false);
-        foreach (var message in liveHistory.Reverse())
+        catch (Exception ex)
         {
-            await AddMessageToHistory(history, message, cachedBrueckeChannel).ConfigureAwait(false);
+            Logger.LogError(ex, "An error occurred while generating the morning briefing.");
         }
-        */
-
-        var developerMessage = $"""
-            {GENERIC_INSTRUCTION}
-            Generate a daily brief news overview (Sent at 8 o'clock).
-            Today is {DateTime.Now:dddd, MMMM dd, yyyy}.
-            You will be provided with some top news from various sources provided as user messages.
-            Include what you deem interesting, the news may have links associated with them.
-            Always return 2-5 news items, each formatted on a single line like this:
-            - [News Title](https://linkto.news)
-            Do not comment or end the message with a signature or conclusion. Just give me the news items.
-            """;
-
-        history.Add(Message.FromText(Role.User, news));
-        history.Add(Message.FromText(Role.User, general));
-        history.Add(Message.FromText(Role.User, tech));
-
-        var response = await ChatClient.CallAsync(developerMessage, history, LeetParameters).ConfigureAwait(false);
-        if (string.IsNullOrEmpty(response))
-        {
-            Logger.LogWarning("Got an empty response for good morning message");
-            return;
-        }
-
-        var text = RestoreDiscordTags(response, cachedOutputChannel, out var hasMentions);
-        await outputTextChannel.SendMessageAsync(text, flags: MessageFlags.SuppressEmbeds | MessageFlags.SuppressNotification).ConfigureAwait(false);
     }
 }

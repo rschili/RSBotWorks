@@ -1,10 +1,11 @@
 using System.Collections.Immutable;
 using System.Data;
+using System.Diagnostics;
 using Discord;
 using Discord.WebSocket;
 using Microsoft.Extensions.Logging;
 using RSBotWorks;
-using RSBotWorks.UniversalAI;
+using RSBotWorks.SaneAI;
 using RSFlowControl;
 
 namespace Wernstrom;
@@ -17,20 +18,6 @@ public partial class WernstromService
     private Lazy<IDictionary<string, IEmote>> Emotes { get; set; }
 
     private Lazy<string> EmojiJsonList { get; set; }
-
-    internal PreparedChatParameters ReactionParameters { get; init; }
-
-    private PreparedChatParameters PrepareReactionParameters()
-    {
-        ChatParameters parameters = new()
-        {
-            ToolChoiceType = ToolChoiceType.None,
-            MaxTokens = 50,
-        };
-        return ChatClient.PrepareParameters(parameters);
-    }
-
-    
 
     internal string REACTION_INSTRUCTION(string emojiList) => $"""
         {GENERIC_INSTRUCTION}
@@ -176,21 +163,29 @@ public partial class WernstromService
 
         var liveHistory = await arg.Channel.GetMessagesAsync(arg, Direction.Before, 3, CacheMode.AllowDownload).FlattenAsync().ConfigureAwait(false);
 
-        List<Message> history = new();
         string systemPrompt = REACTION_INSTRUCTION(EmojiJsonList.Value);
+        var composer = ReactionTemplate.Fork()
+            .SetSystemPrompt(systemPrompt);
+
         foreach (var message in liveHistory)
         {
-            await AddMessageToHistory(history, message, cachedChannel).ConfigureAwait(false);
+            await AddMessageToComposer(composer, message, cachedChannel).ConfigureAwait(false);
         }
-        await AddMessageToHistory(history, arg, cachedChannel).ConfigureAwait(false);
+        await AddMessageToComposer(composer, arg, cachedChannel).ConfigureAwait(false);
 
         try
         {
-            var reaction = await ChatClient.CallAsync(systemPrompt, history, ReactionParameters).ConfigureAwait(false);
+            var stopwatch = Stopwatch.StartNew();
+            var result = await AiClient.SendAsync(composer).ConfigureAwait(false);
+            stopwatch.Stop();
+
+            LogAiResult("Reaction", result, stopwatch.Elapsed);
+
+            var reaction = result.TextContent;
             if (string.IsNullOrEmpty(reaction))
             {
                 Logger.LogWarning("AI did not return a reaction for the message: {Message}", arg.Content.Substring(0, Math.Min(arg.Content.Length, 100)));
-                return; // may be rate limited 
+                return;
             }
             if (Emotes.Value.TryGetValue(reaction, out var guildEmote))
             {
@@ -199,13 +194,18 @@ public partial class WernstromService
             }
 
             // Try to add as unicode emoji
-            if (!Emoji.TryParse(reaction, out var emoji))
+            if (!Emoji.TryParse(reaction, out var emojiReaction))
             {
                 Logger.LogWarning("Could not parse emoji from reaction: {Reaction}", reaction);
                 return;
             }
 
-            await arg.AddReactionAsync(emoji).ConfigureAwait(false);
+            await arg.AddReactionAsync(emojiReaction).ConfigureAwait(false);
+        }
+        catch (AnthropicApiException ex)
+        {
+            Logger.LogError(ex, "Anthropic API error ({ErrorType}) during reaction. Message: {Message}",
+                ex.ErrorType, arg.Content.Substring(0, Math.Min(arg.Content.Length, 100)));
         }
         catch (Exception ex)
         {

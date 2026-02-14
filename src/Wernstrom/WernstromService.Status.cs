@@ -1,9 +1,8 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Text.Json;
-using Anthropic.SDK.Constants;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using RSBotWorks.UniversalAI;
+using RSBotWorks.SaneAI;
 
 namespace Wernstrom;
 
@@ -20,18 +19,6 @@ public partial class WernstromService
         Jede Meldung soll extrem kurz sein und eine aktuelle Tätigkeit oder einen Slogan von dir enthalten.
         Liefere die Statusmeldungen als pures JSON-Array, ohne zusätzliche Erklärungen oder Formatierungen. (Beispiel: ["Status 1", "Status 2", "Status 3", "Status 4", "Status 5"])
         """;
-
-    internal PreparedChatParameters StatusParameters { get; private set; }
-
-    private PreparedChatParameters PrepareStatusParameters()
-    {
-        ChatParameters parameters = new()
-        {
-            ToolChoiceType = ToolChoiceType.None,
-            MaxTokens = 1000,
-        };
-        return ChatClient.PrepareParameters(parameters);
-    }
 
     private async Task UpdateStatusAsync()
     {
@@ -57,21 +44,27 @@ public partial class WernstromService
     internal async Task<List<string>> CreateNewStatusMessages()
     {
         List<string> statusMessages = [];
-        List<Message> history = [Message.FromText(Role.User, STATUS_INSTRUCTION)];
-        string? systemPrompt = null;
 
         try
         {
-            var response = await ChatClient.CallAsync(systemPrompt, history, StatusParameters).ConfigureAwait(false);
-            if (string.IsNullOrEmpty(response))
+            var composer = StatusTemplate.Fork()
+                .AddUserMessage(STATUS_INSTRUCTION);
+
+            var stopwatch = Stopwatch.StartNew();
+            var result = await AiClient.SendAsync(composer).ConfigureAwait(false);
+            stopwatch.Stop();
+
+            LogAiResult("Status", result, stopwatch.Elapsed);
+
+            if (string.IsNullOrEmpty(result.TextContent))
             {
-                Logger.LogWarning($"Got an empty response for status messages");
-                return []; // may be rate limited 
+                Logger.LogWarning("Got an empty response for status messages");
+                return [];
             }
 
             try
             {
-                using var doc = JsonDocument.Parse(response);
+                using var doc = JsonDocument.Parse(result.TextContent);
                 if (doc.RootElement.ValueKind == JsonValueKind.Array)
                 {
                     foreach (var item in doc.RootElement.EnumerateArray())
@@ -83,13 +76,18 @@ public partial class WernstromService
                 }
                 else
                 {
-                    Logger.LogWarning("Status message response was not a JSON array: {Text}", response);
+                    Logger.LogWarning("Status message response was not a JSON array: {Text}", result.TextContent);
                 }
             }
             catch (Exception ex)
             {
-                Logger.LogError(ex, "Failed to parse status messages JSON: {Text}", response);
+                Logger.LogError(ex, "Failed to parse status messages JSON: {Text}", result.TextContent);
             }
+        }
+        catch (AnthropicApiException ex)
+        {
+            Logger.LogError(ex, "Anthropic API error ({ErrorType}) during status message generation. Curl: {Curl}",
+                ex.ErrorType, ex.ToCurl());
         }
         catch (Exception ex)
         {

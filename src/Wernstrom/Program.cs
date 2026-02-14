@@ -3,11 +3,10 @@ using Wernstrom;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using RSBotWorks;
-using Microsoft.Extensions.AI;
 using RSBotWorks.Plugins;
 using Microsoft.Extensions.Options;
+using RSBotWorks.SaneAI;
 using RSBotWorks.UniversalAI;
-using Anthropic.SDK.Constants;
 
 Console.WriteLine($"Current user: {Environment.UserName}");
 Console.WriteLine("Loading config...");
@@ -25,21 +24,18 @@ if (!Directory.Exists(dbDirectory))
 var services = new ServiceCollection();
 services.AddLogging(logBuilder => logBuilder.SetupLogging(config));
 services.AddSingleton<IConfig>(config)
-        .AddSingleton<LoggingHttpHandler>()
-        .AddHttpClient(Options.DefaultName);/*.AddHttpMessageHandler<LoggingHttpHandler>();*/ // comment the second part to disable logging
+        .AddHttpClient(Options.DefaultName);
 using var provider = services.BuildServiceProvider();
 
 var httpClientFactory = provider.GetRequiredService<IHttpClientFactory>();
 
-using var chatClient = ChatClient.CreateAnthropicClient(/*claude-sonnet-4-5-20250929*/ "claude-opus-4-6", config.ClaudeApiKey, httpClientFactory, provider.GetRequiredService<ILogger<ChatClient>>());
-//using var chatClient = ChatClient.CreateOpenAIResponsesClient(OpenAIModel.GPT5, config.OpenAiApiKey, provider.GetRequiredService<ILogger<ChatClient>>());
-//using var chatClient = ChatClient.CreateOpenAIClient(OpenAIModel.GPT5Chat, config.OpenAiApiKey, provider.GetRequiredService<ILogger<ChatClient>>());
+var executor = new DefaultHttpExecutor(httpClientFactory);
+var aiClient = new AnthropicClient(config.ClaudeApiKey, executor);
 
 List<LocalFunction> functions = [];
 HomeAssistantPlugin haPlugin = new(httpClientFactory, new HomeAssistantPluginConfig() { HomeAssistantToken = config.HomeAssistantToken, HomeAssistantUrl = config.HomeAssistantUrl },
     provider.GetRequiredService<ILogger<HomeAssistantPlugin>>());
 functions.Add(LocalFunction.FromMethod(haPlugin, nameof(HomeAssistantPlugin.GetCarStatusAsync)));
-//functions.Add(LocalFunction.FromMethod(haPlugin, nameof(HomeAssistantPlugin.GetHealthInfoAsync)));
 
 WeatherPlugin weatherPlugin = new(httpClientFactory, provider.GetRequiredService<ILogger<WeatherPlugin>>(),
     new WeahterPluginConfig() { ApiKey = config.OpenWeatherMapApiKey });
@@ -48,12 +44,6 @@ functions.AddRange(LocalFunction.FromObject(weatherPlugin));
 NewsPlugin newsPlugin = new(httpClientFactory, provider.GetRequiredService<ILogger<NewsPlugin>>());
 functions.AddRange(LocalFunction.FromObject(newsPlugin));
 
-/*FortunePlugin fortunePlugin = new();
-functions.AddRange(LocalFunction.FromObject(fortunePlugin));*/
-
-YoutubePlugin youtubePlugin = new(provider.GetRequiredService<ILogger<YoutubePlugin>>(), config.GeminiApiKey, config.SocialKitApiKey, httpClientFactory);
-functions.Add(LocalFunction.FromMethod(youtubePlugin, nameof(YoutubePlugin.SummarizeVideoAsync)));
-
 WernstromServiceConfig wernstromConfig = new()
 {
     DiscordToken = config.DiscordToken,
@@ -61,7 +51,7 @@ WernstromServiceConfig wernstromConfig = new()
     MaschinenraumId = config.DiscordMaschinenraumId
 };
 using WernstromService wernstrom = new(provider.GetRequiredService<ILogger<WernstromService>>(),
-    httpClientFactory, wernstromConfig, chatClient, functions);
+    httpClientFactory, wernstromConfig, aiClient, functions);
 
 try
 {
@@ -96,7 +86,7 @@ public static class BuilderExtensions
         builder.AddFilter(typeof(WeatherPlugin).FullName, LogLevel.Information);
         builder.AddFilter(typeof(NewsPlugin).FullName, LogLevel.Information);
         builder.AddFilter(typeof(HomeAssistantPlugin).FullName, LogLevel.Information);
-        builder.AddFilter(typeof(LoggingHttpHandler).FullName, LogLevel.Information);
+        builder.AddFilter("System.Net.Http", LogLevel.Warning);
         builder.AddFilter(typeof(WernstromService).FullName, LogLevel.Debug);
         builder.SetMinimumLevel(LogLevel.Warning);
         builder.AddSeq(config.SeqUrl, config.SeqApiKey);
