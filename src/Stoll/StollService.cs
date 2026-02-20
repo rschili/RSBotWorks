@@ -25,6 +25,7 @@ public record MessageHistoryEntry(
 public partial class StollService 
 {
     private ILogger Logger { get; init; }
+    private ILogger MatrixLogger { get; init; }
     private string MatrixUserId { get; init; }
     private string MatrixPassword { get; init; }
     private IHttpClientFactory HttpClientFactory { get; init; }
@@ -105,9 +106,11 @@ public partial class StollService
         return string.Format(DEFAULT_INSTRUCTION, topic) + Environment.NewLine + " Today's date is " + DateTime.UtcNow.ToString("D") + ".";
     }
 
-    public StollService(ILogger<StollService> logger, string matrixUserId, string matrixPassword, IHttpClientFactory httpClientFactory, AnthropicClient aiClient, List<LocalFunction>? localFunctions)
+    public StollService(ILoggerFactory loggerFactory, string matrixUserId, string matrixPassword, IHttpClientFactory httpClientFactory, AnthropicClient aiClient, List<LocalFunction>? localFunctions)
     {
-        Logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        ArgumentNullException.ThrowIfNull(loggerFactory);
+        Logger = loggerFactory.CreateLogger<StollService>();
+        MatrixLogger = loggerFactory.CreateLogger($"{typeof(StollService).FullName}.Matrix");
         MatrixUserId = matrixUserId ?? throw new ArgumentNullException(nameof(matrixUserId));
         MatrixPassword = matrixPassword ?? throw new ArgumentNullException(nameof(matrixPassword));
         HttpClientFactory = httpClientFactory ?? throw new ArgumentNullException(nameof(httpClientFactory));
@@ -152,7 +155,7 @@ public partial class StollService
 
                 Logger.LogWarning("Attempting to connect to Matrix...");
                 _client = await MatrixTextClient.ConnectAsync(MatrixUserId, MatrixPassword, "MatrixBot-342",
-                    HttpClientFactory, stoppingToken, Logger);
+                    HttpClientFactory, stoppingToken, MatrixLogger);
 
                 Logger.LogWarning("Connected to Matrix successfully.");
                 ConnectedAt = DateTimeOffset.Now;

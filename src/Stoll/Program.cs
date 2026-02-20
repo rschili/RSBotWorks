@@ -38,7 +38,7 @@ functions.AddRange(LocalFunction.FromObject(weatherPlugin));
 NewsPlugin newsPlugin = new(httpClientFactory, serviceProvider.GetRequiredService<ILogger<NewsPlugin>>());
 functions.AddRange(LocalFunction.FromObject(newsPlugin));
 
-StollService stoll = new(serviceProvider.GetRequiredService<ILogger<StollService>>(),
+StollService stoll = new(serviceProvider.GetRequiredService<ILoggerFactory>(),
     config.MatrixUserId, config.MatrixPassword, httpClientFactory, aiClient, functions);
 
 try
@@ -77,6 +77,7 @@ public static class BuilderExtensions
         builder.AddFilter(typeof(HomeAssistantPlugin).FullName, LogLevel.Information);
         builder.AddFilter("System.Net.Http", LogLevel.Warning);
         builder.AddFilter(typeof(StollService).FullName, LogLevel.Information);
+        builder.AddFilter($"{typeof(StollService).FullName}.Matrix", LogLevel.Warning);
         builder.SetMinimumLevel(LogLevel.Warning);
         builder.AddSeq(config.SeqUrl, config.SeqApiKey);
         return builder;
