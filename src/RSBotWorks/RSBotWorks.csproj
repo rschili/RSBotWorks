@@ -12,7 +12,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Anthropic.SDK" Version="5.9.0" />
+    <PackageReference Include="Anthropic.SDK" Version="5.10.0" />
     <PackageReference Include="Dapper" Version="2.1.66" />
     <PackageReference Include="Discord.Net.WebSocket" Version="3.18.0" />
     <PackageReference Include="DotNetEnv" Version="3.1.1" />
