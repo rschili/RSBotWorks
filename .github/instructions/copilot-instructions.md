@@ -1,7 +1,3 @@
----
-applyTo: 'src/RSBotWorks/SaneAI/**,src/RSBotWorks.Tests/SaneAI/**,src/RSBotWorks.Tests/Explicit/SaneAI/**,src/SaneAI.Demo/**'
----
-
 # SaneAI — Raw JSON AI Abstraction
 
 SaneAI is a custom AI API abstraction layer that bypasses third-party SDKs entirely. It talks directly to provider REST APIs using raw JSON, so new model features/settings can be added immediately without waiting for SDK updates.

@@ -50,6 +50,17 @@ public partial class WernstromService
                 mimeType = "image/jpeg"; // Assume JPEG after processing
                 isResized = true;
             }
+            else
+            {
+                // Detect actual MIME type from image bytes — Discord's ContentType can be wrong
+                var detectedFormat = SixLabors.ImageSharp.Image.DetectFormat(imageData);
+                if (detectedFormat != null && detectedFormat.DefaultMimeType != mimeType)
+                {
+                    Logger.LogWarning("Discord reported MIME type {DiscordMimeType} but image bytes indicate {DetectedMimeType} for {Filename}. Using detected type.",
+                        mimeType, detectedFormat.DefaultMimeType, attachment.Filename);
+                    mimeType = detectedFormat.DefaultMimeType;
+                }
+            }
             if (imageData == null || imageData.Length == 0)
             {
                 Logger.LogWarning($"Failed to download or process image: {attachment.Filename}");
