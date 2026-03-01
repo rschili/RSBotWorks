@@ -91,11 +91,18 @@ public sealed class AnthropicRequestComposer
     }
 
     /// <summary>
-    /// Set the thinking mode. "adaptive", "enabled", "disabled".
-    /// For "enabled", pass budgetTokens too.
+    /// Set the thinking mode.
+    /// - "adaptive": Claude decides when/how much to think. Pair with SetEffort(). Preferred on Opus 4.6 / Sonnet 4.6.
+    /// - "enabled": Manual control. Pass budgetTokens. Deprecated on Opus 4.6 / Sonnet 4.6.
+    /// - "disabled" (or null): Omits the thinking parameter entirely — lowest latency.
     /// </summary>
-    public AnthropicRequestComposer SetThinkingType(string type, int? budgetTokens = null)
+    public AnthropicRequestComposer SetThinkingType(string? type, int? budgetTokens = null)
     {
+        if (type == null || type == "disabled")
+        {
+            _root.Remove("thinking");
+            return this;
+        }
         var thinking = new JsonObject { ["type"] = type };
         if (budgetTokens.HasValue)
             thinking["budget_tokens"] = budgetTokens.Value;
