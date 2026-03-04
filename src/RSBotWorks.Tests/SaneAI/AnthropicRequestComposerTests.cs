@@ -246,9 +246,7 @@ public class AnthropicRequestComposerTests
 
         var json = composer.BuildJsonString();
         using var doc = JsonDocument.Parse(json);
-        var thinking = doc.RootElement.GetProperty("thinking");
-
-        await Assert.That(thinking.GetProperty("type").GetString()).IsEqualTo("disabled");
+        await Assert.That(doc.RootElement.TryGetProperty("thinking", out _)).IsFalse();
     }
 
     [Test]
