@@ -82,6 +82,8 @@ public partial class StollService
         if (!EmojiProbabilityRamp.Check())
             return;
 
+        return; // TEMP: disable reactions until we have a chance to do it in a safer way.
+
         var systemPrompt = REACTION_INSTRUCTION;
         var composer = ReactionTemplate.Fork()
             .SetSystemPrompt(systemPrompt);

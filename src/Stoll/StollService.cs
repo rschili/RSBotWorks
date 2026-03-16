@@ -259,21 +259,21 @@ public partial class StollService
                 var fefePost = await GetFefePost();
                 var html = Markdown.ToHtml(fefePost);
                 StoreMessageHistory(cachedChannel.Id, cachedUser.SanitizedName, sanitizedMessage, message.Timestamp, fefePost);
-                await message.SendHtmlResponseAsync(fefePost, html, isReply: false).ConfigureAwait(false);
+                await message.SendHtmlNoticeResponseAsync(fefePost, html, isReply: false).ConfigureAwait(false);
                 return;
             }
 
             if(sanitizedMessage.StartsWith("!prompt", StringComparison.OrdinalIgnoreCase))
             {
                 var prompt = GetDailyInstruction();
-                await message.SendResponseAsync(prompt, isReply: false).ConfigureAwait(false);
+                await message.SendNoticeResponseAsync(prompt, isReply: false).ConfigureAwait(false);
                 return;
             }
 
             if(sanitizedMessage.StartsWith("!topic", StringComparison.OrdinalIgnoreCase))
             {
                 var topic = GetDailyTopic();
-                await message.SendResponseAsync($"Mein Lieblingsthema heute: {topic}", isReply: false).ConfigureAwait(false);
+                await message.SendNoticeResponseAsync($"Mein Lieblingsthema heute: {topic}", isReply: false).ConfigureAwait(false);
                 return;
             }
 
@@ -347,10 +347,10 @@ public partial class StollService
             if (LooksLikeMarkdown(response))
             {
                 var html = Markdown.ToHtml(response);
-                await message.SendHtmlResponseAsync(response, html, isReply: mentions == null, mentions: mentions).ConfigureAwait(false);
+                await message.SendHtmlNoticeResponseAsync(response, html, isReply: mentions == null, mentions: mentions).ConfigureAwait(false);
             }
             else
-                await message.SendResponseAsync(response, isReply: mentions == null, mentions: mentions).ConfigureAwait(false);
+                await message.SendNoticeResponseAsync(response, isReply: mentions == null, mentions: mentions).ConfigureAwait(false);
         }
         catch (AnthropicApiException ex)
         {

@@ -21,7 +21,7 @@
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.3" />
     <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.3" />
     <PackageReference Include="Seq.Extensions.Logging" Version="9.0.0" />
-    <PackageReference Include="RSMatrix" Version="1.2.0" />
+    <PackageReference Include="RSMatrix" Version="1.3.0" />
     <PackageReference Include="System.ServiceModel.Syndication" Version="10.0.3" />
   </ItemGroup>
 
