@@ -99,11 +99,16 @@ public partial class StollService
         "Die Tesla Turbine", "Das Segner Rad", "Das Staustrahltriebwerk", "Quetschmetall", "Braungas", "Magnetohydrodynamik", "Kalte Fusion"
     };
 
-    internal string GetDailyInstruction()
+    internal string GetDailyTopic()
     {
         var dayOfYear = DateTime.UtcNow.DayOfYear;
         var topicIndex = dayOfYear % TOPICS.Count;
-        var topic = TOPICS[topicIndex];
+        return TOPICS[topicIndex];
+    }
+
+    internal string GetDailyInstruction()
+    {
+        var topic = GetDailyTopic();
         return string.Format(DEFAULT_INSTRUCTION, topic) + Environment.NewLine + " Today's date is " + DateTime.UtcNow.ToString("D") + ".";
     }
 
@@ -131,6 +136,9 @@ public partial class StollService
             .SetMaxTokens(1000)
             .EnableWebSearch(maxUses: 5, city: "Heidelberg", country: "DE", timezone: "Europe/Berlin")
             .AddTools(toolDefinitions);
+
+        ReactionTemplate = baseComposer.Fork()
+            .SetMaxTokens(50);
 
         RedditPlugin = new RedditPlugin(NullLogger<RedditPlugin>.Instance, httpClientFactory);
     }
@@ -262,8 +270,19 @@ public partial class StollService
                 return;
             }
 
-            if (!ShouldRespond(message, cachedChannel.Id, sanitizedMessage, cachedUser, isCurrentUserMentioned))
+            if(sanitizedMessage.StartsWith("!topic", StringComparison.OrdinalIgnoreCase))
+            {
+                var topic = GetDailyTopic();
+                await message.SendResponseAsync($"Mein Lieblingsthema heute: {topic}", isReply: false).ConfigureAwait(false);
                 return;
+            }
+
+            if (!ShouldRespond(message, cachedChannel.Id, sanitizedMessage, cachedUser, isCurrentUserMentioned))
+            {
+                // Even if we don't respond with a message, we might react
+                await HandleReactionsAsync(message, cachedChannel, sanitizedMessage).ConfigureAwait(false);
+                return;
+            }
 
             await RespondToMessage(message, cachedChannel, sanitizedMessage, cachedUser).ConfigureAwait(false);
         }
