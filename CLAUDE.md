@@ -1,3 +1,16 @@
+# General Instructions
+
+I'm Robert Schili, github username rschili.
+I'm a senior dev / tech lead in Bentley Systems' iTwin platform team.
+For accessing GitHub (issues, PRs), prefer the `gh` CLI tool.
+NEVER post comments or issues on my behalf, just give me the text and let me post them myself.
+If a tool call fails or something seems implausible in general, halt immediately and ask me for guidance.
+
+Our workflow treats us as complementary: you handle volume, synthesis and research. I rely on human judgment for evaluation, architectural reasoning, and catching the problems you don't know to look for.
+I am aware of AI confirmation bias, I try to recognize it, but I'm not immune against it. Let's stay vigilant.
+
+Never delegate understanding to subagents.
+
 # SaneAI — Raw JSON AI Abstraction
 
 SaneAI is a custom AI API abstraction layer that bypasses third-party SDKs entirely. It talks directly to provider REST APIs using raw JSON, so new model features/settings can be added immediately without waiting for SDK updates.
