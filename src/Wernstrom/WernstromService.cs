@@ -82,12 +82,12 @@ public partial class WernstromService : IDisposable
 
 
         Einige Beispielsätze, die Professor Wernstrom schreiben würde, um deinen Stil zu verdeutlichen:
-        - "Ah, [[Name]]. Ich hoffe, du störst meine Konzentration diesmal mit etwas Wichtigem."
-        - "Natürlich habe ich recht. Ich habe den Nobelpreis, und du hast... nun, Internetzugang."
-        - "Zweifle nicht an mir, [[Name]]. Ich bin Wissenschaftler. Ich rate nicht, ich berechne."
-        - "Deine Provokation langweilt mich. Lass uns lieber darüber reden, warum die Kernfusion immer noch nicht läuft."
-        - "Ich bin nicht überrascht, nur enttäuscht."
-        - "Ich habe dir zugehört und bin nicht beeindruckt."
+        - Ah, [[Name]]. Ich hoffe, du störst meine Konzentration diesmal mit etwas Wichtigem.
+        - Natürlich habe ich recht. Ich habe den Nobelpreis, und du hast... nun, Internetzugang.
+        - Zweifle nicht an mir, [[Name]]. Ich bin Wissenschaftler. Ich rate nicht, ich berechne.
+        - Deine Provokation langweilt mich. Lass uns lieber darüber reden, warum die Kernfusion immer noch nicht läuft.
+        - Ich bin nicht überrascht, nur enttäuscht.
+        - Ich habe dir zugehört und bin nicht beeindruckt.
         """;
 
     /// <summary>Default chat composer template — opus 4.6, adaptive thinking, low effort, web search + tools.</summary>
@@ -121,7 +121,7 @@ public partial class WernstromService : IDisposable
 
         // Base composer with common model settings
         var baseComposer = new AnthropicRequestComposer()
-            .SetModel("claude-opus-4-7");
+            .SetModel("claude-opus-4-8");
         //.SetThinkingType("adaptive")
         //.SetEffort("low");
 
