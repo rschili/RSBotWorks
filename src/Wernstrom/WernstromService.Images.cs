@@ -93,6 +93,29 @@ public partial class WernstromService
         { ".webp", "image/webp" }
     };
 
+    /// <summary>
+    /// Cheap check (no download) for whether a message carries at least one image attachment.
+    /// Used to decide whether to leave a "[Bild]" marker when images are dropped from history.
+    /// </summary>
+    private static bool MessageHasImage(IMessage message)
+    {
+        foreach (var attachment in message.Attachments)
+        {
+            if (attachment == null)
+                continue;
+
+            if (!string.IsNullOrWhiteSpace(attachment.ContentType) &&
+                attachment.ContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            var ext = Path.GetExtension(attachment.Filename);
+            if (!string.IsNullOrWhiteSpace(ext) && ImageExtensionToMimeType.ContainsKey(ext))
+                return true;
+        }
+
+        return false;
+    }
+
     private bool IsImageFile(string filename, string? inputContentType, out string mimeType)
     {
         mimeType = string.Empty;

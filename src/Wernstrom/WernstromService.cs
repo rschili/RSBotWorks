@@ -297,7 +297,7 @@ public partial class WernstromService : IDisposable
         Logger.LogDebug("It took {Seconds:F3}s to enter typing", stopwatch.Elapsed.TotalSeconds);
 
         stopwatch.Restart();
-        var liveHistory = await arg.Channel.GetMessagesAsync(arg, Direction.Before, 10, CacheMode.AllowDownload).FlattenAsync().ConfigureAwait(false);
+        var liveHistory = (await arg.Channel.GetMessagesAsync(arg, Direction.Before, MaxHistoryMessages, CacheMode.AllowDownload).FlattenAsync().ConfigureAwait(false)).ToList();
         stopwatch.Stop();
         Logger.LogDebug("It took {Seconds:F3}s to load live history", stopwatch.Elapsed.TotalSeconds);
 
@@ -311,9 +311,14 @@ public partial class WernstromService : IDisposable
         var composer = ChatTemplate.Fork()
             .SetSystemPrompt(systemPrompt);
 
-        foreach (var message in liveHistory.Reverse())
+        // GetMessagesAsync returns newest-first; SelectHistory trims it down to a
+        // budgeted, chronological window and decides which messages keep their images.
+        var history = SelectHistory(liveHistory, arg.Timestamp);
+        Logger.LogDebug("Selected {Count} of {Fetched} messages for history ({ImageCount} with images)",
+            history.Count, liveHistory.Count, history.Count(h => h.IncludeImages));
+        foreach (var entry in history)
         {
-            await AddMessageToComposer(composer, message, cachedChannel).ConfigureAwait(false);
+            await AddMessageToComposer(composer, entry.Message, cachedChannel, entry.IncludeImages).ConfigureAwait(false);
         }
         await AddMessageToComposer(composer, arg, cachedChannel).ConfigureAwait(false);
         stopwatch.Stop();
@@ -403,7 +408,56 @@ public partial class WernstromService : IDisposable
         }
     }
 
-    private async Task AddMessageToComposer(AnthropicRequestComposer composer, IMessage message, JoinedTextChannel<ulong> cachedChannel)
+    /// <summary>Largest history window we ever fetch from Discord. Mostly served from the local message cache.</summary>
+    private const int MaxHistoryMessages = 50;
+
+    /// <summary>Always keep at least this many messages, even if they are old. Keeps sparse conversations coherent.</summary>
+    private const int MinHistoryMessages = 4;
+
+    /// <summary>Images are only kept for the newest N messages. Older images are dropped (they are expensive in tokens).</summary>
+    private const int MaxImageDepth = 6;
+
+    /// <summary>Total character budget for history text. Lets us include many short messages or fewer long ones.</summary>
+    private const int MaxHistoryChars = 6000;
+
+    /// <summary>Messages older than this are dropped once the minimum is satisfied.</summary>
+    private static readonly TimeSpan MaxHistoryAge = TimeSpan.FromHours(4);
+
+    private readonly record struct HistorySelection(IMessage Message, bool IncludeImages);
+
+    /// <summary>
+    /// Picks which of the fetched messages (newest-first) to include in the prompt and whether each keeps its images.
+    /// Walks from newest to oldest, stopping when the budget is exhausted, but always keeps a minimum for context.
+    /// Returns the selection in chronological (oldest-first) order.
+    /// </summary>
+    private static List<HistorySelection> SelectHistory(IReadOnlyList<IMessage> newestFirst, DateTimeOffset triggerTime)
+    {
+        var selected = new List<HistorySelection>();
+        int remainingChars = MaxHistoryChars;
+
+        for (int i = 0; i < newestFirst.Count && selected.Count < MaxHistoryMessages; i++)
+        {
+            var message = newestFirst[i];
+            bool haveMinimum = selected.Count >= MinHistoryMessages;
+
+            // Drop anything older than the cutoff, but only once we already have enough
+            // context — a quiet channel should still show its last few messages.
+            if (haveMinimum && triggerTime - message.Timestamp > MaxHistoryAge)
+                break;
+
+            int cost = message.Content?.Length ?? 0;
+            if (haveMinimum && cost > remainingChars)
+                break;
+
+            remainingChars -= cost;
+            selected.Add(new HistorySelection(message, IncludeImages: i < MaxImageDepth));
+        }
+
+        selected.Reverse(); // chronological order for the prompt
+        return selected;
+    }
+
+    private async Task AddMessageToComposer(AnthropicRequestComposer composer, IMessage message, JoinedTextChannel<ulong> cachedChannel, bool includeImages = true)
     {
         var user = cachedChannel.GetUser(message.Author.Id);
         if (user == null)
@@ -422,7 +476,7 @@ public partial class WernstromService : IDisposable
             var text = ReplaceDiscordTags(message.Tags, message.Content, cachedChannel);
             var prefix = $"[{message.Timestamp.ToRelativeToNowLabel()}] [[{user.SanitizedName}]]: ";
 
-            var attachments = await ExtractImageAttachments(message).ConfigureAwait(false);
+            var attachments = includeImages ? await ExtractImageAttachments(message).ConfigureAwait(false) : null;
             if (attachments != null && attachments.Count > 0)
             {
                 var blocks = new List<MessageBlock>();
@@ -435,6 +489,10 @@ public partial class WernstromService : IDisposable
             }
             else
             {
+                // Images were dropped (too far back) but leave a cheap marker so the
+                // model still knows something visual was shared.
+                if (!includeImages && MessageHasImage(message))
+                    text = string.IsNullOrWhiteSpace(text) ? "[Bild]" : $"{text} [Bild]";
                 composer.AddUserMessage($"{prefix}{text}");
             }
 
