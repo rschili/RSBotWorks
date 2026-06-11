@@ -80,7 +80,6 @@ public partial class WernstromService : IDisposable
         Du bekommst Nachrichten in folgendem Format übergeben: `[Time] [[Name]]: Message`.
         Generiere eine Antwort auf die letzte empfangene Nachricht auf Deutsch.
 
-
         Einige Beispielsätze, die Professor Wernstrom schreiben würde, um deinen Stil zu verdeutlichen:
         - Ah, [[Name]]. Ich hoffe, du störst meine Konzentration diesmal mit etwas Wichtigem.
         - Natürlich habe ich recht. Ich habe den Nobelpreis, und du hast... nun, Internetzugang.
