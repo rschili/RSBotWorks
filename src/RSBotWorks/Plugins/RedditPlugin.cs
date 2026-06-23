@@ -143,9 +143,12 @@ public class RedditPlugin
     }
 
     [LocalFunction("reddit_top_posts")]
-    [Description("Get a number of top posts of the last day for a given subreddit")]
-    public async Task<string> GetRedditPostsAsync(string subredditName, int limit = 5, RedditSort sort = RedditSort.Top, RedditTimespan timespan = RedditTimespan.Day)
+    [Description("Get the top 5 posts of the last day for a given subreddit")]
+    public async Task<string> GetRedditPostsAsync(string subredditName)
     {
+        var limit = 5;
+        var sort = RedditSort.Top;
+        var timespan = RedditTimespan.Day;
         try
         {
             var posts = await FetchPostsAsync(subredditName, limit, sort, timespan).ConfigureAwait(false);

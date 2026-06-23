@@ -344,15 +344,25 @@ public partial class StollService
             else
                 await message.SendResponseAsync(response, isReply: mentions == null, mentions: mentions).ConfigureAwait(false);
         }
+        catch (System.Net.Http.HttpRequestException ex)
+        {
+            Logger.LogError(ex, "[Chat] HTTP error during AI call: {ExceptionMessage}. Input: {Message}",
+                ex.Message, sanitizedMessage.Length > 100 ? sanitizedMessage[..100] : sanitizedMessage);
+            var code = ex.StatusCode.HasValue ? $" (HTTP {(int)ex.StatusCode.Value})" : "";
+            await message.SendResponseAsync($"Sorry, geht gerade nicht{code}.", isReply: true).ConfigureAwait(false);
+        }
         catch (AnthropicApiException ex)
         {
             Logger.LogError(ex, "[Chat] Anthropic API error ({ErrorType}) during chat. Message: {Message}. ErrorBody: {ErrorBody}. Curl: {Curl}",
                 ex.ErrorType, sanitizedMessage.Length > 100 ? sanitizedMessage[..100] : sanitizedMessage, ex.ErrorBody, ex.ToCurl());
+            var errorCode = !string.IsNullOrEmpty(ex.ErrorType) ? $" ({ex.ErrorType})" : "";
+            await message.SendResponseAsync($"Sorry, geht gerade nicht{errorCode}.", isReply: true).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "[Chat] Error during AI call ({ExceptionType}): {ExceptionMessage}. Input: {Message}",
                 ex.GetType().Name, ex.Message, sanitizedMessage.Length > 100 ? sanitizedMessage[..100] : sanitizedMessage);
+            await message.SendResponseAsync("Sorry, geht gerade nicht.", isReply: true).ConfigureAwait(false);
         }
     }
 

@@ -156,12 +156,12 @@ public partial class WernstromService : IDisposable
         await _discordClient.StartAsync().ConfigureAwait(false);
 
         // Register default operations
-        RegisterDailyOperation(new TimeOnly(08, 00), SendGoodMorningMessage);
+        // RegisterDailyOperation(new TimeOnly(08, 00), SendGoodMorningMessage);
 
         try
         {
-            //await Task.Delay(Timeout.Infinite, stoppingToken);
-            await DailySchedulerLoop(stoppingToken);
+            await Task.Delay(Timeout.Infinite, stoppingToken);
+            //await DailySchedulerLoop(stoppingToken);
         }
         catch (TaskCanceledException)
         {
@@ -356,15 +356,25 @@ public partial class WernstromService : IDisposable
             Logger.LogInformation("[Chat] Responded to {Author}: {Message}", arg.Author.Username, arg.Content.Substring(0, Math.Min(arg.Content.Length, 100)));
             await arg.Channel.SendMessageAsync(text, messageReference: messageReference).ConfigureAwait(false);
         }
+        catch (System.Net.Http.HttpRequestException ex)
+        {
+            Logger.LogError(ex, "[Chat] HTTP error during AI call: {ExceptionMessage}. Input: {Message}",
+                ex.Message, arg.Content.Substring(0, Math.Min(arg.Content.Length, 100)));
+            var code = ex.StatusCode.HasValue ? $" (HTTP {(int)ex.StatusCode.Value})" : "";
+            await arg.Channel.SendMessageAsync($"Sorry, geht gerade nicht{code}.").ConfigureAwait(false);
+        }
         catch (AnthropicApiException ex)
         {
             Logger.LogError(ex, "[Chat] Anthropic API error ({ErrorType}) during chat. Message: {Message}. ErrorBody: {ErrorBody}. Curl: {Curl}",
                 ex.ErrorType, arg.Content.Substring(0, Math.Min(arg.Content.Length, 100)), ex.ErrorBody, ex.ToCurl());
+            var errorCode = !string.IsNullOrEmpty(ex.ErrorType) ? $" ({ex.ErrorType})" : "";
+            await arg.Channel.SendMessageAsync($"Sorry, geht gerade nicht{errorCode}.").ConfigureAwait(false);
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "[Chat] Error during AI call ({ExceptionType}): {ExceptionMessage}. Input: {Message}",
                 ex.GetType().Name, ex.Message, arg.Content.Substring(0, Math.Min(arg.Content.Length, 100)));
+            await arg.Channel.SendMessageAsync("Sorry, geht gerade nicht.").ConfigureAwait(false);
         }
     }
 
