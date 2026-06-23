@@ -1,6 +1,7 @@
 using System.ComponentModel;
+using System.ServiceModel.Syndication;
 using System.Text;
-using System.Text.Json;
+using System.Xml;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using RSBotWorks.UniversalAI;
@@ -37,6 +38,19 @@ public record RedditPost(
 
 public class RedditPlugin
 {
+    // Reddit throttles requests without a descriptive User-Agent. Format: platform:appid:version (by /u/username)
+    private const string UserAgent = "dotnet:RSBotWorks:1.0 (by /u/rschili)";
+
+    // The RSS feed delivers post bodies as HTML. The old JSON API delivered markdown, and the rest
+    // of the codebase (and the Markdig -> Matrix HTML pipeline) expects markdown, so we convert back.
+    private static readonly ReverseMarkdown.Converter HtmlToMarkdown = new(new ReverseMarkdown.Config
+    {
+        UnknownTags = ReverseMarkdown.Config.UnknownTagsOption.Bypass,
+        GithubFlavored = false,
+        RemoveComments = true,
+        SmartHrefHandling = true
+    });
+
     public ILogger Logger { get; private init; }
     public IHttpClientFactory HttpClientFactory { get; private init; }
 
@@ -81,64 +95,60 @@ public class RedditPlugin
             _ => TimeSpan.FromDays(1)
         };
         
-        var url = $"https://www.reddit.com/r/{subredditName}/{sortValue}/.json?t={timespanValue}&limit={limit}";
-        
+        // Reddit blocks anonymous .json API access (HTTP 403). The public .rss/.atom feeds remain
+        // accessible without authentication, so we read those instead. The trade-off: the feed
+        // exposes fewer fields (no pinned/stickied flags).
+        var url = $"https://www.reddit.com/r/{subredditName}/{sortValue}/.rss?t={timespanValue}&limit={limit}";
+
         using var httpClient = HttpClientFactory.CreateClient();
-        httpClient.DefaultRequestHeaders.Add("User-Agent", "RSBotWorks/1.0");
-        
-        var response = await httpClient.GetAsync(url).ConfigureAwait(false);
-        response.EnsureSuccessStatusCode();
-        
-        var json = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
-        using var document = JsonDocument.Parse(json);
-        
-        var root = document.RootElement;
-        var children = root.GetProperty("data").GetProperty("children");
-        
+        httpClient.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", UserAgent);
+
+        using var stream = await httpClient.GetStreamAsync(url).ConfigureAwait(false);
+        using var reader = XmlReader.Create(stream);
+        var feed = SyndicationFeed.Load(reader);
+
         var posts = new List<RedditPost>();
-        foreach (var child in children.EnumerateArray())
+        if (feed == null)
+            return posts;
+
+        foreach (var item in feed.Items)
         {
-            var data = child.GetProperty("data");
-            var title = data.GetProperty("title").GetString();
+            var title = item.Title?.Text;
             if (string.IsNullOrWhiteSpace(title))
                 continue;
 
-            var localSubreddit = data.GetProperty("subreddit").GetString();
+            var link = item.Links.FirstOrDefault()?.Uri;
+            if (link == null)
+                continue;
+
+            // The entry's category term carries the actual subreddit, which matters for combined
+            // feeds like "worldnews+europe+germany". Fall back to the requested name.
+            var localSubreddit = item.Categories.FirstOrDefault()?.Name;
             if (string.IsNullOrWhiteSpace(localSubreddit))
-                continue;
-            
-            var permalink = data.GetProperty("permalink").GetString();
-            if (permalink == null)
-                continue;
-            
-            var selftext = data.TryGetProperty("selftext", out var selftextElement) 
-                ? selftextElement.GetString() 
-                : null;
-            
-            var url_value = data.TryGetProperty("url", out var urlElement) 
-                ? urlElement.GetString() 
-                : null;
+                localSubreddit = subredditName;
 
-            var pinned = data.TryGetProperty("pinned", out var pinnedElement) 
-                ? pinnedElement.GetBoolean() 
-                : false;
+            // Atom <content type="html"> is HTML (already entity-decoded by the XML reader).
+            // Convert it back to markdown so it matches the old JSON API contract and renders
+            // cleanly through the Markdig -> Matrix HTML pipeline.
+            var selftextHtml = (item.Content as TextSyndicationContent)?.Text;
+            if (string.IsNullOrWhiteSpace(selftextHtml) && item.Summary != null)
+                selftextHtml = item.Summary.Text;
 
-            var stickied = data.TryGetProperty("stickied", out var stickiedElement) 
-                ? stickiedElement.GetBoolean() 
-                : false;
+            var selftext = string.IsNullOrWhiteSpace(selftextHtml)
+                ? null
+                : HtmlToMarkdown.Convert(selftextHtml).Trim();
 
-            if (pinned || stickied)
-                continue; // do not return these
+            var published = item.PublishDate != default ? item.PublishDate : item.LastUpdatedTime;
+            if (published != default)
+            {
+                var age = DateTimeOffset.UtcNow - published;
+                if (age > maxAge)
+                    continue; // post is older than the specified timespan
+            }
 
-            var created = data.GetProperty("created_utc").GetDouble();
-            var createdDateTime = DateTimeOffset.FromUnixTimeSeconds((long)created);
-            var age = DateTimeOffset.UtcNow - createdDateTime;
-            if (age > maxAge)
-                continue; // post is older than the specified timespan
-            
-            posts.Add(new RedditPost(localSubreddit, title, permalink, selftext, url_value));
+            posts.Add(new RedditPost(localSubreddit, title, link.AbsolutePath, selftext, link.AbsoluteUri));
         }
-        
+
         return posts;
     }
 
@@ -183,12 +193,12 @@ public class RedditPlugin
         catch (HttpRequestException ex)
         {
             Logger.LogError(ex, "Failed to fetch Reddit posts from r/{SubredditName}", subredditName);
-            return $"Failed to fetch posts from r/{subredditName}. The subreddit may not exist or Reddit API is unavailable.";
+            return $"Failed to fetch posts from r/{subredditName}. The subreddit may not exist or Reddit is unavailable.";
         }
-        catch (JsonException ex)
+        catch (XmlException ex)
         {
-            Logger.LogError(ex, "Failed to parse Reddit JSON response for r/{SubredditName}", subredditName);
-            return $"Failed to parse Reddit response for r/{subredditName}.";
+            Logger.LogError(ex, "Failed to parse Reddit RSS feed for r/{SubredditName}", subredditName);
+            return $"Failed to parse Reddit feed for r/{subredditName}.";
         }
     }
 }
