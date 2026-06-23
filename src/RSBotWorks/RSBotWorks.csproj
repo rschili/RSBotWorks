@@ -13,18 +13,22 @@
 
   <ItemGroup>
     <PackageReference Include="Anthropic.SDK" Version="5.10.0" />
-    <PackageReference Include="Dapper" Version="2.1.72" />
-    <PackageReference Include="Discord.Net.WebSocket" Version="3.19.1" />
-    <PackageReference Include="DotNetEnv" Version="3.1.1" />
-    <PackageReference Include="Google_GenerativeAI" Version="3.6.3" />
+    <PackageReference Include="Dapper" Version="2.1.79" />
+    <PackageReference Include="Discord.Net.WebSocket" Version="3.20.1" />
+    <PackageReference Include="DotNetEnv" Version="3.2.0" />
+    <PackageReference Include="Google_GenerativeAI" Version="3.6.6" />
     <PackageReference Include="HADotNet.Core" Version="1.6.0" />
-    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.5" />
-  <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.5" />
-    <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.5" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.9" />
+    <!-- Pin SQLitePCLRaw to override the transitive 2.1.11 pulled by Microsoft.Data.Sqlite,
+         which bundles a vulnerable SQLite (< 3.50.2, CVE-2025-6965 / NU1903).
+         3.0.x is the first line with the fix. Flows to all projects that reference RSBotWorks. -->
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.3" />
+  <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.9" />
+    <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.9" />
     <PackageReference Include="ReverseMarkdown" Version="5.4.0" />
     <PackageReference Include="Seq.Extensions.Logging" Version="9.0.0" />
     <PackageReference Include="RSMatrix" Version="1.3.0" />
-    <PackageReference Include="System.ServiceModel.Syndication" Version="10.0.5" />
+    <PackageReference Include="System.ServiceModel.Syndication" Version="10.0.9" />
   </ItemGroup>
 
 </Project>
