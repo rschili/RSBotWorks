@@ -134,7 +134,7 @@ public partial class StollService
 
         // Base composer with common model settings
         var baseComposer = new AnthropicRequestComposer()
-            .SetModel("claude-opus-4-8");
+            .SetModel("claude-sonnet-4-6");
         //.SetThinkingType("adaptive")
         //.SetEffort("low");
 
