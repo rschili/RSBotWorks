@@ -120,7 +120,7 @@ public partial class WernstromService : IDisposable
 
         // Base composer with common model settings
         var baseComposer = new AnthropicRequestComposer()
-            .SetModel("claude-sonnet-4-6");
+            .SetModel("claude-sonnet-5");
         //.SetThinkingType("adaptive")
         //.SetEffort("low");
 
