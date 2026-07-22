@@ -13,10 +13,10 @@ CultureInfo.DefaultThreadCurrentCulture = cultureInfo;
 CultureInfo.DefaultThreadCurrentUICulture = cultureInfo;
 
 var env = DotNetEnv.Env.NoEnvVars().TraversePath().Load().ToDotEnvDictionary();
-string apiKey = env.TryGetValue("CLAUDE_API_KEY", out var key) ? key : "";
+string apiKey = env.TryGetValue("OPENROUTER_API_KEY", out var key) ? key : "";
 if (string.IsNullOrEmpty(apiKey))
 {
-    Console.Error.WriteLine("CLAUDE_API_KEY is not set in a .env file. Cannot continue.");
+    Console.Error.WriteLine("OPENROUTER_API_KEY is not set in a .env file. Cannot continue.");
     return 1;
 }
 
@@ -39,7 +39,7 @@ var logger = provider.GetRequiredService<ILogger<Program>>();
 
 // --- Create the SaneAI client ---
 var executor = new DefaultHttpExecutor(httpClientFactory);
-var client = new AnthropicClient(apiKey, executor);
+var client = new OpenRouterClient(apiKey, executor);
 
 // --- Register plugins (same as WernstromService) ---
 // Plugins are optional — if an env var is missing, that plugin is skipped.
@@ -128,12 +128,11 @@ const string SYSTEM_PROMPT = """
     """;
 
 // --- Base composer: reusable template primed with model + system prompt + tools ---
-var template = new AnthropicRequestComposer()
-    .SetModel("claude-opus-4-6")
+var template = new OpenRouterRequestComposer()
+    .SetModel(OpenRouterModelNames.Sonnet5)
     .SetMaxTokens(1000)
     .SetSystemPrompt(SYSTEM_PROMPT)
-    .SetThinkingType("adaptive")
-    .SetEffort("low")
+    .DisableReasoning()
     .AddTools(toolDefinitions);
 
 // --- Chat loop ---
@@ -147,6 +146,7 @@ Console.WriteLine("  /json         Show raw JSON request/response for the last e
 Console.WriteLine("  /clear        Clear conversation history and start fresh");
 Console.WriteLine("  /web          Enable web search for subsequent messages");
 Console.WriteLine("  /noweb        Disable web search");
+Console.WriteLine("  /image        Send \"Was siehst du hier?\" + test-picture.png (base64 vision test)");
 Console.WriteLine("  /tools        List loaded tools");
 Console.ResetColor();
 Console.WriteLine();
@@ -197,7 +197,7 @@ while (true)
     {
         conversation = template.Fork();
         if (enableWebSearch)
-            conversation.EnableWebSearch(maxUses: 3, city: "Heidelberg", country: "DE", timezone: "Europe/Berlin");
+            conversation.EnableWebSearch(maxResults: 3, city: "Heidelberg", country: "DE", timezone: "Europe/Berlin");
         lastResult = null;
         Console.WriteLine("(conversation cleared)");
         continue;
@@ -205,7 +205,7 @@ while (true)
     if (input.Equals("/web", StringComparison.OrdinalIgnoreCase))
     {
         enableWebSearch = true;
-        conversation.EnableWebSearch(maxUses: 3, city: "Heidelberg", country: "DE", timezone: "Europe/Berlin");
+        conversation.EnableWebSearch(maxResults: 3, city: "Heidelberg", country: "DE", timezone: "Europe/Berlin");
         Console.WriteLine("(web search enabled)");
         continue;
     }
@@ -231,12 +231,56 @@ while (true)
         Console.ResetColor();
         continue;
     }
+    if (input.Equals("/image", StringComparison.OrdinalIgnoreCase))
+    {
+        await SendImageTestAsync();
+        Console.WriteLine();
+        continue;
+    }
     if (string.IsNullOrWhiteSpace(input))
         continue;
 
     // --- Send message ---
     conversation.AddUserMessage(input);
+    await SendAndDisplayAsync();
 
+    Console.WriteLine();
+}
+
+Console.WriteLine("Bye!");
+return 0;
+
+// --- Helpers ---
+
+// Loads test-picture.png and sends it alongside a fixed prompt. The composer/client
+// encodes the raw bytes as a base64 data URL, so this exercises the vision path.
+async Task SendImageTestAsync()
+{
+    var imagePath = Path.Combine(AppContext.BaseDirectory, "test-picture.png");
+    if (!File.Exists(imagePath))
+    {
+        Console.ForegroundColor = ConsoleColor.Red;
+        Console.WriteLine($"(test-picture.png not found at {imagePath})");
+        Console.ResetColor();
+        return;
+    }
+
+    var imageBytes = await File.ReadAllBytesAsync(imagePath);
+    Console.ForegroundColor = ConsoleColor.DarkGray;
+    Console.WriteLine($"(sending 'Was siehst du hier?' + test-picture.png — {imageBytes.Length / 1024} KB as base64)");
+    Console.ResetColor();
+
+    // Multi-block user message: text + image (same shape WernstromService builds from Discord attachments).
+    conversation.AddUserMessage(
+        OpenRouterMessageBlock.FromText("Was siehst du hier?"),
+        OpenRouterMessageBlock.FromImage("image/png", imageBytes));
+
+    await SendAndDisplayAsync();
+}
+
+// Sends the current conversation, prints the reply + token usage, and records it as lastResult.
+async Task SendAndDisplayAsync()
+{
     try
     {
         var result = await client.SendAsync(conversation, ExecuteTool);
@@ -270,7 +314,7 @@ while (true)
             Console.ResetColor();
         }
     }
-    catch (AnthropicApiException ex)
+    catch (OpenRouterApiException ex)
     {
         Console.ForegroundColor = ConsoleColor.Red;
         Console.WriteLine($"API Error: {ex.Message}");
@@ -284,14 +328,7 @@ while (true)
         Console.WriteLine($"Exception: {ex.Message}");
         Console.ResetColor();
     }
-
-    Console.WriteLine();
 }
-
-Console.WriteLine("Bye!");
-return 0;
-
-// --- Helpers ---
 
 static string FormatJson(string? json)
 {

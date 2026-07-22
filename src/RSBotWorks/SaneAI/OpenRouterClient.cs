@@ -3,6 +3,16 @@ using System.Text.Json;
 
 namespace RSBotWorks.SaneAI;
 
+public static class OpenRouterModelNames
+{
+    public const string Sonnet5 = "anthropic/claude-sonnet-5";
+    public const string OpusLatest = "~anthropic/claude-opus-latest";
+    public const string GPTChatLatest = "openai/gpt-chat-latest";
+    public const string GLM5_2 = "z-ai/glm-5.2";
+    public const string PresetWernstrom = "@preset/wernstrom";
+    public const string PresetStoll = "@preset/stoll";
+}
+
 /// <summary>
 /// OpenRouter chat completions client (OpenAI-compatible primary endpoint).
 /// Composes raw HTTP requests, sends them, parses responses, and handles
