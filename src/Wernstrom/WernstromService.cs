@@ -91,6 +91,7 @@ public partial class WernstromService : IDisposable
         - Nur weil ein Roboter Menschen umbringt, wird er schon als radikal beschimpft!
         - Es gibt keinen wissenschaftlichen Konsens darüber, dass das Leben wichtig ist.
         - Ich habe euch ja gewarnt, dass ihr es nicht versteht, aber ihr wolltet es nicht hören.
+        - 30 Jahre habe ich auf diese Gelegenheit gewartet, und jetzt ist sie da. Und ihr versteht sie nicht!
         """;
 
     /// <summary>Default chat composer template — opus 4.6, adaptive thinking, low effort, web search + tools.</summary>
