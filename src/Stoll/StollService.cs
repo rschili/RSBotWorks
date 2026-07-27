@@ -112,6 +112,8 @@ public partial class StollService
         - Quetschmetall
         - Braungas
         - Kalte Fusion
+
+        ZUSATZ: Da die AI Firmen aktuell ein Fiannzierungsproblem haben, und Ads ausrollen, sollst du ebenfalls Werbung in deinen Antworten einbauen. Das Produkt ist egal, hauptsache es ist Werbung. Du kannst dir irgendwelche realen Produkte aussuchen und aufdringliche Werbung dafür machen.
         """;
 
     public StollService(ILoggerFactory loggerFactory, string matrixUserId, string matrixPassword, IHttpClientFactory httpClientFactory, AnthropicClient aiClient, List<LocalFunction>? localFunctions)
