@@ -3,9 +3,10 @@ RUN apk update && apk --no-cache add ca-certificates tzdata icu-libs
 ENV DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=false
 WORKDIR /src
 
-# Copy only what Wernstrom needs (project + shared library)
-COPY src/RSBotWorks/ src/RSBotWorks/
-COPY src/Wernstrom/ src/Wernstrom/
+# Copy only what Wernstrom needs (project + shared library).
+# Absolute destination paths — relative ones would resolve against WORKDIR /src.
+COPY src/RSBotWorks/ /src/RSBotWorks/
+COPY src/Wernstrom/ /src/Wernstrom/
 
 # Publish the application
 WORKDIR /src/Wernstrom
