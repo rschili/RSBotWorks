@@ -183,6 +183,11 @@ public partial class StollService
 
                 Logger.LogWarning("Matrix Sync has ended.");
             }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                Logger.LogWarning("Shutdown requested, stopping Matrix worker service.");
+                break;
+            }
             catch (Exception ex)
             {
                 Logger.LogError(ex, "An error was caught in the matrix service loop.");
@@ -201,7 +206,15 @@ public partial class StollService
             }
 
             Logger.LogWarning("Reconnecting to Matrix in {Delay}s (Attempt {RetryCount}/{MaxRetries})...", currentDelay / 1000, retryCount, maxRetries);
-            await Task.Delay(currentDelay, stoppingToken);
+            try
+            {
+                await Task.Delay(currentDelay, stoppingToken);
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                Logger.LogWarning("Shutdown requested during reconnect delay.");
+                break;
+            }
 
             // Increase delay for the next retry, up to the maximum delay
             currentDelay = currentDelay * retryDelayFactor;
@@ -333,14 +346,16 @@ public partial class StollService
             IList<MatrixId> mentions = [];
             response = HandleMentions(response, channel, mentions).Trim();
 
-            // Only convert to HTML if the response contains markdown formatting
+            // Only convert to HTML if the response contains markdown formatting.
+            // Send as a reply when the response mentions users, so the mentions
+            // resolve to real Matrix notifications instead of plain text.
             if (LooksLikeMarkdown(response))
             {
                 var html = Markdown.ToHtml(response);
-                await message.SendHtmlResponseAsync(response, html, isReply: mentions == null, mentions: mentions).ConfigureAwait(false);
+                await message.SendHtmlResponseAsync(response, html, isReply: mentions.Count > 0, mentions: mentions).ConfigureAwait(false);
             }
             else
-                await message.SendResponseAsync(response, isReply: mentions == null, mentions: mentions).ConfigureAwait(false);
+                await message.SendResponseAsync(response, isReply: mentions.Count > 0, mentions: mentions).ConfigureAwait(false);
         }
         catch (System.Net.Http.HttpRequestException ex)
         {
@@ -466,7 +481,12 @@ public partial class StollService
         bool wasMentioned = false;
         text = Regex.Replace(text, customMentionPattern, match =>
         {
+            // Matrix user IDs always carry the leading '@' (e.g. "@alice:example.org"),
+            // but the regex group above excludes it. Normalize before lookup.
             var userId = match.Groups["userId"].Value;
+            if (!userId.StartsWith('@'))
+                userId = "@" + userId;
+
             var user = cachedChannel.GetUser(userId);
             if (user?.Id == _client!.CurrentUser.Full)
             {

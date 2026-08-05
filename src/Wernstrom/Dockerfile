@@ -1,8 +1,11 @@
-FROM  mcr.microsoft.com/dotnet/sdk:10.0-alpine AS build-env
+FROM mcr.microsoft.com/dotnet/sdk:10.0-alpine AS build-env
 RUN apk update && apk --no-cache add ca-certificates tzdata icu-libs
 ENV DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=false
 WORKDIR /src
-COPY /src .
+
+# Copy only what Wernstrom needs (project + shared library)
+COPY src/RSBotWorks/ src/RSBotWorks/
+COPY src/Wernstrom/ src/Wernstrom/
 
 # Publish the application
 WORKDIR /src/Wernstrom
@@ -14,5 +17,5 @@ ENV DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=false
 ENV TZ=Europe/Berlin
 RUN ln -sf /usr/share/zoneinfo/Europe/Berlin /etc/localtime
 WORKDIR /Wernstrom
-COPY --from=build-env src/Wernstrom/out .
+COPY --from=build-env /src/Wernstrom/out .
 ENTRYPOINT ["dotnet", "/Wernstrom/Wernstrom.dll"]

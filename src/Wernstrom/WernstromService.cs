@@ -235,7 +235,7 @@ public partial class WernstromService : IDisposable
             LogSeverity.Debug => LogLevel.Debug,
             _ => LogLevel.None
         };
-        Logger.Log(logLevel, message.Exception, $"DiscordClientLog: ${message.Message}");
+        Logger.Log(logLevel, message.Exception, $"DiscordClientLog: {message.Message}");
         return Task.CompletedTask;
     }
 
@@ -250,7 +250,9 @@ public partial class WernstromService : IDisposable
         if (cachedChannel == null)
         {
             cachedChannel = new JoinedTextChannel<ulong>(arg.Channel.Id, arg.Channel.Name, await GetChannelUsers(arg.Channel).ConfigureAwait(false));
-            Cache.Channels = TextChannels.Add(cachedChannel); // TODO: This may add duplicates, but since it's only a cache it should not matter
+            // Guard against duplicates: two messages in the same new channel can race here.
+            if (TextChannels.All(c => c.Id != cachedChannel.Id))
+                Cache.Channels = TextChannels.Add(cachedChannel);
         }
 
         var cachedUser = cachedChannel.GetUser(arg.Author.Id);

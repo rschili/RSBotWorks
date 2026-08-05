@@ -1,8 +1,11 @@
-FROM  mcr.microsoft.com/dotnet/sdk:10.0-alpine AS build-env
+FROM mcr.microsoft.com/dotnet/sdk:10.0-alpine AS build-env
 RUN apk update && apk --no-cache add ca-certificates tzdata icu-libs
 ENV DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=false
 WORKDIR /src
-COPY /src .
+
+# Copy only what Stoll needs (project + shared library)
+COPY src/RSBotWorks/ src/RSBotWorks/
+COPY src/Stoll/ src/Stoll/
 
 # Publish the application
 WORKDIR /src/Stoll
@@ -14,5 +17,5 @@ ENV DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=false
 ENV TZ=Europe/Berlin
 RUN ln -sf /usr/share/zoneinfo/Europe/Berlin /etc/localtime
 WORKDIR /Stoll
-COPY --from=build-env src/Stoll/out .
+COPY --from=build-env /src/Stoll/out .
 ENTRYPOINT ["dotnet", "/Stoll/Stoll.dll"]
