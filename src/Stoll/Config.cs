@@ -10,6 +10,7 @@ public enum EnvVar
     SEQ_URL,
     SQLITE_DB_PATH,
     OPENWEATHERMAP_API_KEY,
+    OPENROUTER_API_KEY,
     HA_API_URL,
     HA_TOKEN
 
@@ -20,6 +21,7 @@ public class Config
     private readonly Dictionary<EnvVar, string> _variables;
 
     public string OpenAiApiKey => _variables[EnvVar.OPENAI_API_KEY];
+    public string OpenRouterApiKey => _variables[EnvVar.OPENROUTER_API_KEY];
     public string ClaudeApiKey => _variables[EnvVar.CLAUDE_API_KEY];
     public string MatrixUserId => _variables[EnvVar.MATRIX_USER_ID];
     public string MatrixPassword => _variables[EnvVar.MATRIX_PASSWORD];

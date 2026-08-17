@@ -59,7 +59,7 @@ if (env.TryGetValue("OPENWEATHERMAP_API_KEY", out var weatherKey) && !string.IsN
 {
     var weatherPlugin = new WeatherPlugin(httpClientFactory,
         provider.GetRequiredService<ILogger<WeatherPlugin>>(),
-        new WeahterPluginConfig { ApiKey = weatherKey });
+        new WeatherPluginConfig { ApiKey = weatherKey });
     functions.AddRange(LocalFunction.FromObject(weatherPlugin));
     logger.LogInformation("Loaded plugin: Weather");
 }

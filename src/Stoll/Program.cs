@@ -28,15 +28,16 @@ using var serviceProvider = services.BuildServiceProvider();
 var httpClientFactory = serviceProvider.GetRequiredService<IHttpClientFactory>();
 
 var executor = new DefaultHttpExecutor(httpClientFactory);
-var aiClient = new AnthropicClient(config.ClaudeApiKey, executor);
+//var aiClient = new AnthropicClient(config.ClaudeApiKey, executor);
+var aiClient = new OpenRouterClient(config.OpenAiApiKey, executor);
 
 List<LocalFunction> functions = [];
 WeatherPlugin weatherPlugin = new(httpClientFactory, serviceProvider.GetRequiredService<ILogger<WeatherPlugin>>(),
-    new WeahterPluginConfig() { ApiKey = config.OpenWeatherMapApiKey });
+    new WeatherPluginConfig() { ApiKey = config.OpenWeatherMapApiKey });
 functions.AddRange(LocalFunction.FromObject(weatherPlugin));
 
-NewsPlugin newsPlugin = new(httpClientFactory, serviceProvider.GetRequiredService<ILogger<NewsPlugin>>());
-functions.AddRange(LocalFunction.FromObject(newsPlugin));
+/*NewsPlugin newsPlugin = new(httpClientFactory, serviceProvider.GetRequiredService<ILogger<NewsPlugin>>());
+functions.AddRange(LocalFunction.FromObject(newsPlugin));*/
 
 TextPlugin textPlugin = new();
 functions.AddRange(LocalFunction.FromObject(textPlugin));

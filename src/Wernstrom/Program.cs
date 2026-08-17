@@ -30,19 +30,20 @@ using var provider = services.BuildServiceProvider();
 var httpClientFactory = provider.GetRequiredService<IHttpClientFactory>();
 
 var executor = new DefaultHttpExecutor(httpClientFactory);
-var aiClient = new AnthropicClient(config.ClaudeApiKey, executor);
+//var aiClient = new AnthropicClient(config.ClaudeApiKey, executor);
+var aiClient = new OpenRouterClient(config.OpenRouterApiKey, executor);
 
 List<LocalFunction> functions = [];
-HomeAssistantPlugin haPlugin = new(httpClientFactory, new HomeAssistantPluginConfig() { HomeAssistantToken = config.HomeAssistantToken, HomeAssistantUrl = config.HomeAssistantUrl },
+/*HomeAssistantPlugin haPlugin = new(httpClientFactory, new HomeAssistantPluginConfig() { HomeAssistantToken = config.HomeAssistantToken, HomeAssistantUrl = config.HomeAssistantUrl },
     provider.GetRequiredService<ILogger<HomeAssistantPlugin>>());
-functions.Add(LocalFunction.FromMethod(haPlugin, nameof(HomeAssistantPlugin.GetCarStatusAsync)));
+functions.Add(LocalFunction.FromMethod(haPlugin, nameof(HomeAssistantPlugin.GetCarStatusAsync)));*/
 
 WeatherPlugin weatherPlugin = new(httpClientFactory, provider.GetRequiredService<ILogger<WeatherPlugin>>(),
-    new WeahterPluginConfig() { ApiKey = config.OpenWeatherMapApiKey });
+    new WeatherPluginConfig() { ApiKey = config.OpenWeatherMapApiKey });
 functions.AddRange(LocalFunction.FromObject(weatherPlugin));
 
-NewsPlugin newsPlugin = new(httpClientFactory, provider.GetRequiredService<ILogger<NewsPlugin>>());
-functions.AddRange(LocalFunction.FromObject(newsPlugin));
+/*NewsPlugin newsPlugin = new(httpClientFactory, provider.GetRequiredService<ILogger<NewsPlugin>>());
+functions.AddRange(LocalFunction.FromObject(newsPlugin));*/
 
 TextPlugin textPlugin = new();
 functions.AddRange(LocalFunction.FromObject(textPlugin));
@@ -51,7 +52,6 @@ WernstromServiceConfig wernstromConfig = new()
 {
     DiscordToken = config.DiscordToken,
     BrueckeId = config.DiscordBrueckeId,
-    MaschinenraumId = config.DiscordMaschinenraumId
 };
 using WernstromService wernstrom = new(provider.GetRequiredService<ILogger<WernstromService>>(),
     httpClientFactory, wernstromConfig, aiClient, functions);

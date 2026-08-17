@@ -155,7 +155,7 @@ public partial class WernstromService
             return;
         }
 
-        var outputChannel = await DiscordClient.GetChannelAsync(Config.MaschinenraumId).ConfigureAwait(false);
+        var outputChannel = await DiscordClient.GetChannelAsync(Config.BrueckeId).ConfigureAwait(false);
         if (outputChannel == null || outputChannel is not ITextChannel outputTextChannel)
         {
             Logger.LogError("Failed to get text channel for sending good morning message");

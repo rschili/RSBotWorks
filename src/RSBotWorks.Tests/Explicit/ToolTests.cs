@@ -28,7 +28,7 @@ public class ToolTests
         var httpClientFactory = Substitute.For<IHttpClientFactory>();
         httpClientFactory.CreateClient(Arg.Any<string>()).Returns(_ => new HttpClient());
 
-        var weatherPlugin = new WeatherPlugin(httpClientFactory, NullLogger<WeatherPlugin>.Instance, new WeahterPluginConfig() { ApiKey = apiKey });
+        var weatherPlugin = new WeatherPlugin(httpClientFactory, NullLogger<WeatherPlugin>.Instance, new WeatherPluginConfig() { ApiKey = apiKey });
         var functions = LocalFunction.FromObject(weatherPlugin);
         var currentWeatherFunction = functions.FirstOrDefault(f => f.Name == "get_current_weather");
 
@@ -70,7 +70,7 @@ public class ToolTests
         var httpClientFactory = Substitute.For<IHttpClientFactory>();
         httpClientFactory.CreateClient(Arg.Any<string>()).Returns(_ => new HttpClient());
 
-        var weatherPlugin = new WeatherPlugin(httpClientFactory, NullLogger<WeatherPlugin>.Instance, new WeahterPluginConfig() { ApiKey = apiKey });
+        var weatherPlugin = new WeatherPlugin(httpClientFactory, NullLogger<WeatherPlugin>.Instance, new WeatherPluginConfig() { ApiKey = apiKey });
         var functions = LocalFunction.FromObject(weatherPlugin);
         var forecastFunction = functions.FirstOrDefault(f => f.Name == "weather_forecast");
 

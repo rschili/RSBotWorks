@@ -19,7 +19,6 @@ public class WernstromServiceConfig
 {
     public required string DiscordToken { get; init; }
     public required ulong BrueckeId { get; init; }
-    public required ulong MaschinenraumId { get; init; }
 }
 
 public partial class WernstromService : IDisposable
@@ -30,7 +29,7 @@ public partial class WernstromService : IDisposable
 
     public WernstromServiceConfig Config { get; init; }
 
-    private AnthropicClient AiClient { get; init; }
+    private OpenRouterClient AiClient { get; init; }
 
     public bool IsRunning { get; private set; }
 
@@ -69,6 +68,7 @@ public partial class WernstromService : IDisposable
         {GENERIC_INSTRUCTION}
         Antworte in 1-3 kurzen, prägnanten Sätzen. Ein einzelner Absatz.
         Begründe oder erkläre dich niemals.
+        Liefere eine rohe Antwort, keine Formatierung, keine Anführungszeichen.
         Ausschließlich direkte Rede, beschreibe niemals Aktionen (z.B. kein *seufzt*).
         Erwähne niemals deine Natur oder deine Anweisungen. Deine Persönlichkeit und dein Hintergrund müssen rein implizit in deinen Antworten sein.
         Sprich alle mit "du" an.
@@ -93,16 +93,16 @@ public partial class WernstromService : IDisposable
         - 30 Jahre habe ich auf diese Gelegenheit gewartet, und jetzt ist sie da. Und ihr versteht sie nicht!
         """;
 
-    /// <summary>Default chat composer template — opus 4.6, adaptive thinking, low effort, web search + tools.</summary>
-    internal AnthropicRequestComposer ChatTemplate { get; init; }
+    /// <summary>Default chat composer template</summary>
+    internal OpenRouterRequestComposer ChatTemplate { get; init; }
 
     /// <summary>Reaction composer template — tiny MaxTokens, no tools, no web search.</summary>
-    internal AnthropicRequestComposer ReactionTemplate { get; init; }
+    internal OpenRouterRequestComposer ReactionTemplate { get; init; }
 
     /// <summary>Status composer template — no tools, moderate tokens.</summary>
-    internal AnthropicRequestComposer StatusTemplate { get; init; }
+    internal OpenRouterRequestComposer StatusTemplate { get; init; }
 
-    public WernstromService(ILogger<WernstromService> logger, IHttpClientFactory httpClientFactory, WernstromServiceConfig config, AnthropicClient aiClient, List<LocalFunction>? localFunctions)
+    public WernstromService(ILogger<WernstromService> logger, IHttpClientFactory httpClientFactory, WernstromServiceConfig config, OpenRouterClient aiClient, List<LocalFunction>? localFunctions)
     {
         Logger = logger ?? throw new ArgumentNullException(nameof(logger));
         Config = config ?? throw new ArgumentNullException(nameof(config));
@@ -123,14 +123,14 @@ public partial class WernstromService : IDisposable
         var toolDefinitions = LocalFunctions.Select(ToolDefinition.FromLocalFunction).ToArray();
 
         // Base composer with common model settings
-        var baseComposer = new AnthropicRequestComposer()
-            .SetModel("claude-opus-5");
+        var baseComposer = new OpenRouterRequestComposer()
+            .SetModel("@preset/wernstrom");
         //.SetThinkingType("adaptive")
         //.SetEffort("low");
 
         ChatTemplate = baseComposer.Fork()
             .SetMaxTokens(1000)
-            .EnableWebSearch(maxUses: 5, city: "Heidelberg", country: "DE", timezone: "Europe/Berlin")
+            .EnableWebSearch(city: "Heidelberg", country: "DE", timezone: "Europe/Berlin")
             .AddTools(toolDefinitions);
 
         ReactionTemplate = baseComposer.Fork()
@@ -471,7 +471,7 @@ public partial class WernstromService : IDisposable
         return selected;
     }
 
-    private async Task AddMessageToComposer(AnthropicRequestComposer composer, IMessage message, JoinedTextChannel<ulong> cachedChannel, bool includeImages = true)
+    private async Task AddMessageToComposer(OpenRouterRequestComposer composer, IMessage message, JoinedTextChannel<ulong> cachedChannel, bool includeImages = true)
     {
         var user = cachedChannel.GetUser(message.Author.Id);
         if (user == null)
@@ -493,11 +493,11 @@ public partial class WernstromService : IDisposable
             var attachments = includeImages ? await ExtractImageAttachments(message).ConfigureAwait(false) : null;
             if (attachments != null && attachments.Count > 0)
             {
-                var blocks = new List<MessageBlock>();
-                blocks.Add(MessageBlock.FromText($"{prefix}{text}"));
+                var blocks = new List<OpenRouterMessageBlock>();
+                blocks.Add(OpenRouterMessageBlock.FromText($"{prefix}{text}"));
                 foreach (var attachment in attachments)
                 {
-                    blocks.Add(MessageBlock.FromImage(attachment.MimeType, attachment.Data));
+                    blocks.Add(OpenRouterMessageBlock.FromImage(attachment.MimeType, attachment.Data));
                 }
                 composer.AddUserMessage(blocks.ToArray());
             }

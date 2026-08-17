@@ -106,7 +106,7 @@ public class Sys
     public required long Sunset { get; set; }
 }
 
-public class WeahterPluginConfig
+public class WeatherPluginConfig
 {
     public required string ApiKey { get; set; }
 }
@@ -120,7 +120,7 @@ public class WeatherPlugin
 
     public string ApiKey { get; private init; }
 
-    public WeatherPlugin(IHttpClientFactory httpClientFactory, ILogger<WeatherPlugin>? logger, WeahterPluginConfig config)
+    public WeatherPlugin(IHttpClientFactory httpClientFactory, ILogger<WeatherPlugin>? logger, WeatherPluginConfig config)
     {
         ApiKey = config?.ApiKey ?? throw new ArgumentNullException(nameof(config.ApiKey), "API Key cannot be null or empty.");
         HttpClientFactory = httpClientFactory ?? throw new ArgumentNullException(nameof(httpClientFactory));

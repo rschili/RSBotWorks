@@ -12,7 +12,7 @@ public partial class StollService
     private ProbabilityRamp EmojiProbabilityRamp { get; init; } = new(0, 0.4, TimeSpan.FromMinutes(40));
 
     /// <summary>Reaction composer template — tiny MaxTokens, no tools, no web search.</summary>
-    internal AnthropicRequestComposer ReactionTemplate { get; init; }
+    internal OpenRouterRequestComposer ReactionTemplate { get; init; }
 
     private static readonly ImmutableHashSet<string> GreetingKeywords = ImmutableHashSet.Create(
         StringComparer.OrdinalIgnoreCase,

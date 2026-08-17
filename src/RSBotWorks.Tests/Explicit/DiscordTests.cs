@@ -19,10 +19,10 @@ public class DiscordTests
         CultureInfo.DefaultThreadCurrentCulture = cultureInfo;
         CultureInfo.DefaultThreadCurrentUICulture = cultureInfo;
         var env = DotNetEnv.Env.NoEnvVars().TraversePath().Load().ToDotEnvDictionary();
-        string claudeKey = env["CLAUDE_API_KEY"];
-        if (string.IsNullOrEmpty(claudeKey))
+        string key = env["OPENROUTER_API_KEY"];
+        if (string.IsNullOrEmpty(key))
         {
-            Assert.Fail("CLAUDE_API_KEY is not set in the .env file.");
+            Assert.Fail("OPENROUTER_API_KEY is not set in the .env file.");
             return;
         }
 
@@ -35,13 +35,12 @@ public class DiscordTests
         var httpClientFactory = provider.GetRequiredService<IHttpClientFactory>();
 
         var executor = new DefaultHttpExecutor(httpClientFactory);
-        var aiClient = new AnthropicClient(claudeKey, executor);
+        var aiClient = new OpenRouterClient(key, executor);
 
         var wernstromConfig = new WernstromServiceConfig()
         {
             DiscordToken = "",
-            BrueckeId = 32434534ul,
-            MaschinenraumId = 32434535ul
+            BrueckeId = 32434534ul
         };
         var discordService = new Wernstrom.WernstromService(NullLogger<Wernstrom.WernstromService>.Instance, httpClientFactory, wernstromConfig, aiClient, null);
 
