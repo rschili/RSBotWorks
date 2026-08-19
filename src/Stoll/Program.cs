@@ -29,7 +29,7 @@ var httpClientFactory = serviceProvider.GetRequiredService<IHttpClientFactory>()
 
 var executor = new DefaultHttpExecutor(httpClientFactory);
 //var aiClient = new AnthropicClient(config.ClaudeApiKey, executor);
-var aiClient = new OpenRouterClient(config.OpenAiApiKey, executor);
+var aiClient = new OpenRouterClient(config.OpenRouterApiKey, executor);
 
 List<LocalFunction> functions = [];
 WeatherPlugin weatherPlugin = new(httpClientFactory, serviceProvider.GetRequiredService<ILogger<WeatherPlugin>>(),
