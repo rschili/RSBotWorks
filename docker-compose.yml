@@ -1,0 +1,18 @@
+# Local deployment for both bots.
+# Usage: docker compose up -d --build   (or: podman compose up -d --build)
+# Requires a .env file next to this file (see .env_template).
+
+services:
+  wernstrom:
+    build:
+      context: .
+      dockerfile: src/Wernstrom/Dockerfile
+    env_file: .env
+    restart: unless-stopped
+
+  stoll:
+    build:
+      context: .
+      dockerfile: src/Stoll/Dockerfile
+    env_file: .env
+    restart: unless-stopped

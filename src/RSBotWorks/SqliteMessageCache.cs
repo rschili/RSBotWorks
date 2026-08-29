@@ -86,11 +86,17 @@ public class SqliteMessageCache : IDisposable
         ArgumentException.ThrowIfNullOrWhiteSpace(dataBase64, nameof(dataBase64));
 
         using var command = Connection.CreateCommand();
-        command.CommandText = "INSERT INTO UnprocessedPictures(Timestamp, MimeType, DataBase64) VALUES(@Timestamp, @MimeType, @DataBase64); SELECT last_insert_rowid();";
+        command.CommandText = "INSERT INTO UnprocessedPictures(Timestamp, MimeType, DataBase64) VALUES(@Timestamp, @MimeType, @DataBase64)";
         command.Parameters.AddWithValue("@Timestamp", timestamp.UtcTicks);
         command.Parameters.AddWithValue("@MimeType", mimeType);
         command.Parameters.AddWithValue("@DataBase64", dataBase64);
-        var result = await command.ExecuteScalarAsync();
+        await command.ExecuteNonQueryAsync();
+
+        // Microsoft.Data.Sqlite does not reliably return the result of a trailing
+        // SELECT inside a multi-statement command, so query the rowid separately.
+        using var rowIdCommand = Connection.CreateCommand();
+        rowIdCommand.CommandText = "SELECT last_insert_rowid();";
+        var result = await rowIdCommand.ExecuteScalarAsync();
         return Convert.ToInt32(result);
     }
 

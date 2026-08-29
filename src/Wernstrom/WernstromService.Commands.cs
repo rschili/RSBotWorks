@@ -70,10 +70,7 @@ public partial class WernstromService
         if (lowerBound == upperBound)
             result = lowerBound;
         else
-        {
-            var random = new Random();
-            result = random.Next(lowerBound, upperBound + 1);
-        }
+            result = Random.Shared.Next(lowerBound, upperBound + 1);
         await command.RespondAsync($"{MentionUtils.MentionUser(command.User.Id)} rolled a {result} ({lowerBound}-{upperBound})");
     }
 
@@ -82,7 +79,7 @@ public partial class WernstromService
         if (string.IsNullOrWhiteSpace(rangeOption))
             throw new ArgumentException("Range option cannot be null or empty.", nameof(rangeOption));
 
-        var parts = rangeOption.Split([' ', '-'], 2, StringSplitOptions.TrimEntries);
+        var parts = rangeOption.Split([' ', '-', '/'], 2, StringSplitOptions.TrimEntries);
         if (parts.Length == 1 && int.TryParse(parts[0], out int singleValue) && singleValue > 0)
         {
             return (1, singleValue);
