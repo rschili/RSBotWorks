@@ -225,6 +225,35 @@ public class OpenRouterClientTests
     }
 
     [Test, Explicit]
+    public async Task WernstromPreset_ReactionReturnsAllowedValueWithoutHittingTokenLimit()
+    {
+        var client = CreateClient(out _);
+        var logger = TestContext.Current?.GetDefaultLogger();
+        string[] allowedReactions = ["coffee", "tea", "heart", "brain"];
+
+        var composer = new OpenRouterRequestComposer()
+            .SetModel("@preset/wernstrom")
+            .SetMaxTokens(1000)
+            .SetSystemPrompt("Choose an appropriate reaction from this JSON list: [\"coffee\",\"tea\",\"heart\",\"brain\"]. Only provide the value directly, without formatting, quotes, or additional text.")
+            .AddUserMessage("I finally fixed that difficult production bug. Thanks for helping me work through it!");
+
+        var result = await client.SendAsync(composer);
+
+        if (logger != null)
+        {
+            await logger.LogInformationAsync($"Request JSON:\n{result.Request.Body}");
+            await logger.LogInformationAsync($"Response JSON:\n{result.Response.Body}");
+            await logger.LogInformationAsync($"Curl:\n{CurlGenerator.Generate(result)}");
+            await logger.LogInformationAsync($"Text: {result.TextContent}");
+            await logger.LogInformationAsync($"Stop: {result.StopReason}");
+            await logger.LogInformationAsync($"Tokens: in={result.Usage?.InputTokens} out={result.Usage?.OutputTokens}");
+        }
+
+        await Assert.That(result.StopReason).IsEqualTo("stop");
+        await Assert.That(result.TextContent).IsNotNull().And.IsIn(allowedReactions);
+    }
+
+    [Test, Explicit]
     public async Task ErrorHandling_BadApiKey_ThrowsException()
     {
         var httpClientFactory = Substitute.For<IHttpClientFactory>();

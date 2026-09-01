@@ -202,10 +202,10 @@ public partial class WernstromService
 
             await arg.AddReactionAsync(emojiReaction).ConfigureAwait(false);
         }
-        catch (AnthropicApiException ex)
+        catch (OpenRouterApiException ex)
         {
-            Logger.LogError(ex, "Anthropic API error ({ErrorType}) during reaction. Message: {Message}",
-                ex.ErrorType, arg.Content.Substring(0, Math.Min(arg.Content.Length, 100)));
+            Logger.LogError(ex, "OpenRouter API error ({ErrorCode}) during reaction. Message: {Message}. ErrorBody: {ErrorBody}. Curl: {Curl}",
+                ex.ErrorCode, arg.Content.Substring(0, Math.Min(arg.Content.Length, 100)), ex.ErrorBody, ex.ToCurl());
         }
         catch (Exception ex)
         {

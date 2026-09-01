@@ -96,7 +96,7 @@ public partial class WernstromService : IDisposable
     /// <summary>Default chat composer template</summary>
     internal OpenRouterRequestComposer ChatTemplate { get; init; }
 
-    /// <summary>Reaction composer template — tiny MaxTokens, no tools, no web search.</summary>
+    /// <summary>Reaction composer template — enough tokens for preset reasoning, no tools or web search.</summary>
     internal OpenRouterRequestComposer ReactionTemplate { get; init; }
 
     /// <summary>Status composer template — no tools, moderate tokens.</summary>
@@ -134,7 +134,7 @@ public partial class WernstromService : IDisposable
             .AddTools(toolDefinitions);
 
         ReactionTemplate = baseComposer.Fork()
-            .SetMaxTokens(50);
+            .SetMaxTokens(1000);
 
         StatusTemplate = baseComposer.Fork()
             .SetMaxTokens(1000);
