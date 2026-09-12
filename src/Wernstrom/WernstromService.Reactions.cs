@@ -29,36 +29,30 @@ public partial class WernstromService
 
     private Dictionary<string, IEmote> BuildEmotesDictionary()
     {
-        var emotes = DiscordClient.Guilds.SelectMany(g => g.Emotes)
-            .Where(e => e.IsAvailable == true)
-            .GroupBy(e => e.Name, StringComparer.OrdinalIgnoreCase);
-
         var emotesDict = new Dictionary<string, IEmote>(StringComparer.OrdinalIgnoreCase);
-        foreach (var group in emotes)
+        foreach (var emote in DiscordClient.Guilds.SelectMany(guild => guild.Emotes))
         {
-            var name = group.Key;
-            var value = group.First();
-            var desc = GetEmojiDescriptiveName(name);
-            if (desc == null)
+            if (emote.IsAvailable != true)
                 continue;
 
-            emotesDict[desc] = value;
+            var name = GetEmojiDescriptiveName(emote.Name) ?? emote.Name;
+            emotesDict.TryAdd(name, emote);
         }
 
-        emotesDict["coffee"] = new Emoji("☕");
-        emotesDict["tea"] = new Emoji("🍵");
-        emotesDict["icecream"] = new Emoji("🍦");
-        emotesDict["croissant"] = new Emoji("🥐");
-        emotesDict["fried-egg"] = new Emoji("🍳");
-        emotesDict["whiskey"] = new Emoji("🥃");
-        emotesDict["baguette"] = new Emoji("🥖");
-        emotesDict["cheese"] = new Emoji("🧀");
-        emotesDict["honey"] = new Emoji("🍯");
-        emotesDict["milk"] = new Emoji("🥛");
-        emotesDict["alarm_clock"] = new Emoji("⏰");
-        emotesDict["pizza"] = new Emoji("🍕");
-        emotesDict["heart"] = new Emoji("❤️");
-        emotesDict["brain"] = new Emoji("🧠");
+        emotesDict.TryAdd("coffee", new Emoji("☕"));
+        emotesDict.TryAdd("tea", new Emoji("🍵"));
+        emotesDict.TryAdd("icecream", new Emoji("🍦"));
+        emotesDict.TryAdd("croissant", new Emoji("🥐"));
+        emotesDict.TryAdd("fried-egg", new Emoji("🍳"));
+        emotesDict.TryAdd("whiskey", new Emoji("🥃"));
+        emotesDict.TryAdd("baguette", new Emoji("🥖"));
+        emotesDict.TryAdd("cheese", new Emoji("🧀"));
+        emotesDict.TryAdd("honey", new Emoji("🍯"));
+        emotesDict.TryAdd("milk", new Emoji("🥛"));
+        emotesDict.TryAdd("alarm_clock", new Emoji("⏰"));
+        emotesDict.TryAdd("pizza", new Emoji("🍕"));
+        emotesDict.TryAdd("heart", new Emoji("❤️"));
+        emotesDict.TryAdd("brain", new Emoji("🧠"));
         return emotesDict;
     }
 
@@ -69,24 +63,15 @@ public partial class WernstromService
             "quinkerella" => "cat",
             "avery" => "dog",
             "sidus2" => "groundhog",
-            "coins" => "coins",
             "banking" => "treasure",
-            "disgusted" => "disgusted",
             "zonk" => "fail",
             "gustaff" => "silly-face",
             "evil" => "evil-grin",
-            "salt" => "salt",
             "louisdefunes_lol" => "lol",
             "louisdefunes_shocked" => "shocked",
-            "troll" => "troll",
             "homerdrool" => "tasty",
             "facepalmpicard" => "disappointed",
             "homer" => "yay",
-            "nsfw" => "nsfw",
-            "wernstrom" => "wernstrom",
-            "hypnotoad" => "hypnotoad",
-            "zoidberg" => "zoidberg",
-            "farnsworth" => "farnsworth",
             "angry_sun" => "angry-sun",
             _ => null // no description available
         };
