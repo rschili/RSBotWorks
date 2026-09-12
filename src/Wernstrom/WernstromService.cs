@@ -129,15 +129,16 @@ public partial class WernstromService : IDisposable
         //.SetEffort("low");
 
         ChatTemplate = baseComposer.Fork()
-            .SetMaxTokens(1000)
+            .SetMaxTokens(2000)
             .EnableWebSearch(city: "Heidelberg", country: "DE", timezone: "Europe/Berlin")
             .AddTools(toolDefinitions);
 
         ReactionTemplate = baseComposer.Fork()
+            .SetModel("@preset/wernstrom-reaction")
             .SetMaxTokens(1000);
 
         StatusTemplate = baseComposer.Fork()
-            .SetMaxTokens(1000);
+            .SetMaxTokens(2000);
     }
 
     public async Task ExecuteAsync(CancellationToken stoppingToken)
