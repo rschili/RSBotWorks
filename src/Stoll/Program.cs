@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Runtime.InteropServices;
 using Stoll;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -45,14 +46,35 @@ functions.AddRange(LocalFunction.FromObject(textPlugin));
 StollService stoll = new(serviceProvider.GetRequiredService<ILoggerFactory>(),
     config.MatrixUserId, config.MatrixPassword, httpClientFactory, aiClient, functions);
 
+using var shutdown = new CancellationTokenSource();
+ConsoleCancelEventHandler cancelHandler = (_, args) =>
+{
+    args.Cancel = true;
+    shutdown.Cancel();
+};
+Console.CancelKeyPress += cancelHandler;
+// Docker normally stops containers with SIGTERM, not Ctrl+C.
+using var sigterm = OperatingSystem.IsWindows() ? null : PosixSignalRegistration.Create(PosixSignal.SIGTERM, context =>
+{
+    context.Cancel = true;
+    shutdown.Cancel();
+});
 try
 {
-    await stoll.ExecuteAsync(CancellationToken.None).ConfigureAwait(false);
+    await stoll.ExecuteAsync(shutdown.Token).ConfigureAwait(false);
+}
+catch (OperationCanceledException) when (shutdown.IsCancellationRequested)
+{
+    // Normal shutdown.
 }
 catch (Exception ex)
 {
     Console.WriteLine("Critical error during execution. The application will terminate. " + ex.Message);
     throw;
+}
+finally
+{
+    Console.CancelKeyPress -= cancelHandler;
 }
 
 

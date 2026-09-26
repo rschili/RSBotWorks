@@ -11,6 +11,7 @@ using RSBotWorks.Plugins;
 using RSBotWorks.SaneAI;
 using RSBotWorks.UniversalAI;
 using RSMatrix;
+using RSMatrix.Http;
 using RSMatrix.Models;
 
 namespace Stoll;
@@ -148,61 +149,79 @@ public partial class StollService
     private DateTimeOffset ConnectedAt { get; set; } = DateTimeOffset.MinValue;
     public async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        const int maxRetries = 10; // Maximum number of retries
-        int retryCount = 0;       // Current retry attempt
-        const int initialDelay = 5000;         // Initial delay in milliseconds
-        const int retryDelayFactor = 3; // Factor to increase delay
-        int currentDelay = initialDelay; // Current delay
+        const int maxRetries = 10;
+        var retryCount = 0;
+        var stableConnectionTime = TimeSpan.FromMinutes(5);
+        if (IsRunning)
+        {
+            Logger.LogError("Matrix worker service is already running.");
+            return;
+        }
 
         while (!stoppingToken.IsCancellationRequested)
         {
+            // Cancel the old sync even if message consumption fails unexpectedly.
+            using var connectionLifetime = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+            long? connectedTimestamp = null;
+            TimeSpan delay;
             try
             {
-                if (IsRunning)
-                {
-                    Logger.LogError("Matrix worker service is already running.");
-                    return;
-                }
-
                 Logger.LogWarning("Attempting to connect to Matrix...");
                 _client = await MatrixTextClient.ConnectAsync(MatrixUserId, MatrixPassword, "MatrixBot-342",
-                    HttpClientFactory, stoppingToken, MatrixLogger);
+                    HttpClientFactory, connectionLifetime.Token, MatrixLogger);
 
                 Logger.LogWarning("Connected to Matrix successfully.");
                 ConnectedAt = DateTimeOffset.Now;
-                retryCount = 0; // Reset retry count upon successful connection
-                currentDelay = initialDelay;   // Reset delay upon successful connection
+                connectedTimestamp = Stopwatch.GetTimestamp();
 
-                // Process messages
+                // RSMatrix recovers transient sync failures within this session.
                 await foreach (var message in _client.Messages.ReadAllAsync(stoppingToken))
-                {
                     await MessageReceivedAsync(message).ConfigureAwait(false);
-                }
 
-                Logger.LogWarning("Matrix Sync has ended.");
+                Logger.LogInformation("Matrix sync has ended.");
+                break;
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                break;
             }
             catch (Exception ex)
             {
-                Logger.LogError(ex, "An error was caught in the matrix service loop.");
+                if (!MatrixReconnectPolicy.ShouldRetry(ex, stoppingToken))
+                {
+                    Logger.LogError(ex, "Terminal Matrix error. Stopping rather than repeatedly logging in.");
+                    break;
+                }
+
+                // A login followed immediately by a sync failure is not a stable
+                // connection and must not reset the retry budget/backoff.
+                if (connectedTimestamp is { } started && Stopwatch.GetElapsedTime(started) >= stableConnectionTime)
+                    retryCount = 0;
+
+                if (retryCount >= maxRetries)
+                {
+                    Logger.LogError(ex, "Maximum number of retries reached. Stopping Matrix worker service.");
+                    break;
+                }
+                delay = MatrixReconnectPolicy.GetDelay(retryCount, (ex as MatrixResponseException)?.RetryAfter);
+                retryCount++;
+                Logger.LogWarning(ex, "Reconnecting to Matrix in {Delay}s (Attempt {RetryCount}/{MaxRetries})...",
+                    delay.TotalSeconds, retryCount, maxRetries);
             }
             finally
             {
+                await connectionLifetime.CancelAsync().ConfigureAwait(false);
                 _client = null;
             }
 
-            // Reconnection logic
-            retryCount++;
-            if (retryCount > maxRetries)
+            try
             {
-                Logger.LogError("Maximum number of retries reached. Stopping Matrix worker service.");
+                await MatrixReconnectPolicy.DelayAsync(delay, stoppingToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
                 break;
             }
-
-            Logger.LogWarning("Reconnecting to Matrix in {Delay}s (Attempt {RetryCount}/{MaxRetries})...", currentDelay / 1000, retryCount, maxRetries);
-            await Task.Delay(currentDelay, stoppingToken);
-
-            // Increase delay for the next retry, up to the maximum delay
-            currentDelay = currentDelay * retryDelayFactor;
         }
     }
 
