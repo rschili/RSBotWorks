@@ -42,6 +42,7 @@ public class ChatResultParsingTests
         await Assert.That(result.TextContent).IsEqualTo("Hello! How can I assist you today?");
         await Assert.That(result.StopReason).IsEqualTo("end_turn");
         await Assert.That(result.ModelId).IsEqualTo("claude-opus-4-6");
+        await Assert.That(result.ResponseId).IsEqualTo("msg_01XFDUDYJgAACzvnptvVoYEL");
         await Assert.That(result.Usage).IsNotNull();
         await Assert.That(result.Usage!.InputTokens).IsEqualTo(12);
         await Assert.That(result.Usage!.OutputTokens).IsEqualTo(8);
@@ -265,6 +266,42 @@ public class ChatResultParsingTests
         await Assert.That(sum.OutputTokens).IsEqualTo(60);
         await Assert.That(sum.CacheCreationInputTokens).IsEqualTo(5);
         await Assert.That(sum.CacheReadInputTokens).IsNull();
+    }
+
+    [Test]
+    [Arguments("{\"content\":[]}")]
+    [Arguments("{\"content\":[],\"usage\":null}")]
+    public async Task MissingUsage_RemainsUnknown(string responseBody)
+    {
+        var client = new AnthropicClient("test-key", new MockHttpExecutor(200, responseBody));
+        var result = await client.SendAsync(new AnthropicRequestComposer().SetModel("m").AddUserMessage("hi"));
+
+        await Assert.That(result.Usage).IsNull();
+    }
+
+    [Test]
+    public async Task PartialUsage_DoesNotInventZeroCounts()
+    {
+        var client = new AnthropicClient("test-key", new MockHttpExecutor(200,
+            """{"content":[],"usage":{"input_tokens":null,"output_tokens":0}}"""));
+        var result = await client.SendAsync(new AnthropicRequestComposer().SetModel("m").AddUserMessage("hi"));
+
+        await Assert.That(result.Usage).IsNotNull();
+        await Assert.That(result.Usage!.InputTokens).IsNull();
+        await Assert.That(result.Usage.OutputTokens).IsEqualTo(0);
+    }
+
+    [Test]
+    public async Task TokenUsage_Add_UnknownCountsPropagate()
+    {
+        var complete = new TokenUsage { InputTokens = 10, OutputTokens = 20, ReasoningTokens = 15 };
+        var partial = new TokenUsage { OutputTokens = 5 };
+        foreach (var sum in new[] { complete.Add(partial), partial.Add(complete) })
+        {
+            await Assert.That(sum.InputTokens).IsNull();
+            await Assert.That(sum.OutputTokens).IsEqualTo(25);
+            await Assert.That(sum.ReasoningTokens).IsNull();
+        }
     }
 
     [Test]

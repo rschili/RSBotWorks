@@ -11,6 +11,7 @@ public class OpenRouterClientTests
         var responseBody = """
         {
             "id": "gen-123",
+            "provider": "Anthropic",
             "object": "chat.completion",
             "created": 1677652288,
             "model": "anthropic/claude-sonnet-4",
@@ -18,15 +19,19 @@ public class OpenRouterClientTests
                 {
                     "index": 0,
                     "finish_reason": "stop",
+                    "native_finish_reason": "end_turn",
                     "message": {
                         "role": "assistant",
-                        "content": "Hello! How can I assist you today?"
+                        "content": "Hello! How can I assist you today?",
+                        "reasoning": "Private reasoning",
+                        "reasoning_details": [{ "type": "reasoning.text", "text": "More private reasoning" }]
                     }
                 }
             ],
             "usage": {
                 "prompt_tokens": 12,
                 "completion_tokens": 8,
+                "completion_tokens_details": { "reasoning_tokens": 3 },
                 "total_tokens": 20
             }
         }
@@ -45,11 +50,129 @@ public class OpenRouterClientTests
         await Assert.That(result.TextContent).IsEqualTo("Hello! How can I assist you today?");
         await Assert.That(result.StopReason).IsEqualTo("stop");
         await Assert.That(result.ModelId).IsEqualTo("anthropic/claude-sonnet-4");
+        await Assert.That(result.ResponseId).IsEqualTo("gen-123");
+        await Assert.That(result.Provider).IsEqualTo("Anthropic");
+        await Assert.That(result.NativeStopReason).IsEqualTo("end_turn");
         await Assert.That(result.Usage).IsNotNull();
         await Assert.That(result.Usage!.InputTokens).IsEqualTo(12);
         await Assert.That(result.Usage!.OutputTokens).IsEqualTo(8);
+        await Assert.That(result.Usage!.ReasoningTokens).IsEqualTo(3);
         await Assert.That(result.HasToolCalls).IsFalse();
         await Assert.That(result.ToolRoundsExecuted).IsEqualTo(0);
+    }
+
+    [Test]
+    public async Task ReasoningOnlyResponse_NullContentRemainsNull()
+    {
+        var responseBody = """
+        {
+            "choices": [{"finish_reason":"length","message":{
+                "role":"assistant","content":null,
+                "reasoning":"Private reasoning",
+                "reasoning_details":[{"type":"reasoning.text","text":"More private reasoning"}]
+            }}]
+        }
+        """;
+        var client = new OpenRouterClient("test-key", new MockHttpExecutor(200, responseBody));
+        var composer = new OpenRouterRequestComposer().SetModel("m").AddUserMessage("hi");
+
+        var result = await client.SendAsync(composer);
+
+        await Assert.That(result.TextContent).IsNull();
+        await Assert.That(result.StopReason).IsEqualTo("length");
+    }
+
+    [Test]
+    [Arguments(null, false, null, null, null)]
+    [Arguments("null", false, null, null, null)]
+    [Arguments("{}", true, null, null, null)]
+    [Arguments("""{"prompt_tokens":null,"completion_tokens":null,"completion_tokens_details":{"reasoning_tokens":null}}""", true, null, null, null)]
+    [Arguments("""{"prompt_tokens":"12","completion_tokens":false,"completion_tokens_details":{"reasoning_tokens":"3"}}""", true, null, null, null)]
+    [Arguments("""{"prompt_tokens":0,"completion_tokens":0,"completion_tokens_details":{"reasoning_tokens":0}}""", true, 0, 0, 0)]
+    [Arguments("""{"prompt_tokens":12}""", true, 12, null, null)]
+    [Arguments("""{"completion_tokens":8}""", true, null, 8, null)]
+    [Arguments("""{"completion_tokens_details":{"reasoning_tokens":3}}""", true, null, null, 3)]
+    [Arguments("""{"prompt_tokens":12,"completion_tokens":8}""", true, 12, 8, null)]
+    [Arguments("""{"completion_tokens_details":null}""", true, null, null, null)]
+    [Arguments("""{"completion_tokens_details":{}}""", true, null, null, null)]
+    public async Task Usage_UnknownCountsRemainDistinctFromZero(
+        string? usageJson, bool hasUsage, int? input, int? output, int? reasoning)
+    {
+        var usageField = usageJson == null ? "" : $",\"usage\":{usageJson}";
+        var responseBody = """
+        {"choices":[{"finish_reason":"stop","message":{"role":"assistant","content":"hi"}}]
+        """ + usageField + "}";
+        var client = new OpenRouterClient("test-key", new MockHttpExecutor(200, responseBody));
+        var composer = new OpenRouterRequestComposer().SetModel("m").AddUserMessage("hi");
+
+        var result = await client.SendAsync(composer);
+
+        await Assert.That(result.TextContent).IsEqualTo("hi");
+        if (!hasUsage)
+        {
+            await Assert.That(result.Usage).IsNull();
+            return;
+        }
+        await Assert.That(result.Usage).IsNotNull();
+        await Assert.That(result.Usage!.InputTokens).IsEqualTo(input);
+        await Assert.That(result.Usage!.OutputTokens).IsEqualTo(output);
+        await Assert.That(result.Usage!.ReasoningTokens).IsEqualTo(reasoning);
+    }
+
+    [Test]
+    [Arguments(true, null, null, null, null)]
+    [Arguments(false, null, null, null, null)]
+    [Arguments(true, "null", null, null, null)]
+    [Arguments(false, "null", null, null, null)]
+    [Arguments(true, "{}", null, null, null)]
+    [Arguments(false, "{}", null, null, null)]
+    [Arguments(true, """{"prompt_tokens":3}""", 13, null, null)]
+    [Arguments(false, """{"prompt_tokens":3}""", 13, null, null)]
+    [Arguments(true, """{"completion_tokens":3,"completion_tokens_details":{"reasoning_tokens":1}}""", null, 8, 3)]
+    [Arguments(false, """{"completion_tokens":3,"completion_tokens_details":{"reasoning_tokens":1}}""", null, 8, 3)]
+    public async Task ToolRounds_IncompleteUsageLeavesAffectedTotalsUnknown(
+        bool incompleteFirst, string? incompleteUsage, int? input, int? output, int? reasoning)
+    {
+        const string completeUsage = """{"prompt_tokens":10,"completion_tokens":5,"completion_tokens_details":{"reasoning_tokens":2}}""";
+        var firstUsage = incompleteFirst ? incompleteUsage : completeUsage;
+        var lastUsage = incompleteFirst ? completeUsage : incompleteUsage;
+        var firstUsageField = firstUsage == null ? "" : $",\"usage\":{firstUsage}";
+        var lastUsageField = lastUsage == null ? "" : $",\"usage\":{lastUsage}";
+        var responses = new Queue<(int Status, string Body)>();
+        responses.Enqueue((200, """
+        {"choices":[{"finish_reason":"tool_calls","message":{"role":"assistant","content":null,
+            "tool_calls":[{"id":"t1","type":"function","function":{"name":"my_tool","arguments":"{}"}}]}}]
+        """ + firstUsageField + "}"));
+        responses.Enqueue((200, """
+        {"choices":[{"finish_reason":"stop","message":{"role":"assistant","content":"done"}}]
+        """ + lastUsageField + "}"));
+        var client = new OpenRouterClient("test-key", new QueuedMockHttpExecutor(responses));
+        var composer = new OpenRouterRequestComposer().SetModel("m").AddUserMessage("go");
+
+        var result = await client.SendAsync(composer, _ => Task.FromResult("tool result"));
+
+        await Assert.That(result.TextContent).IsEqualTo("done");
+        await Assert.That(result.ToolRoundsExecuted).IsEqualTo(1);
+        await Assert.That(result.Usage).IsNotNull();
+        await Assert.That(result.Usage!.InputTokens).IsEqualTo(input);
+        await Assert.That(result.Usage!.OutputTokens).IsEqualTo(output);
+        await Assert.That(result.Usage!.ReasoningTokens).IsEqualTo(reasoning);
+    }
+
+    [Test]
+    public async Task Http200ErrorBody_ReturnsEmptyResultWithRawResponse()
+    {
+        var responseBody = """{"error":{"code":502,"message":"Provider returned error"},"model":"m"}""";
+        var client = new OpenRouterClient("test-key", new MockHttpExecutor(200, responseBody));
+        var composer = new OpenRouterRequestComposer().SetModel("m").AddUserMessage("hi");
+
+        var result = await client.SendAsync(composer);
+
+        await Assert.That(result.TextContent).IsNull();
+        await Assert.That(result.Usage).IsNull();
+        await Assert.That(result.ModelId).IsEqualTo("m");
+        await Assert.That(result.HasToolCalls).IsFalse();
+        await Assert.That(result.Response.Body).IsEqualTo(responseBody);
     }
 
     [Test]
@@ -98,24 +221,29 @@ public class OpenRouterClientTests
                     }
                 }
             ],
-            "usage": { "prompt_tokens": 50, "completion_tokens": 30, "total_tokens": 80 }
+            "usage": { "prompt_tokens": 50, "completion_tokens": 30, "total_tokens": 80,
+                "completion_tokens_details": { "reasoning_tokens": 12 } }
         }
         """));
-        responses.Enqueue((200, """
+        var finalResponseBody = """
         {
+            "provider": "Anthropic",
             "id": "gen-final", "object": "chat.completion", "created": 2, "model": "anthropic/claude-sonnet-4",
             "choices": [
                 {
                     "index": 0,
                     "finish_reason": "stop",
+                    "native_finish_reason": "end_turn",
                     "message": { "role": "assistant", "content": "It's 22°C and sunny in Berlin." }
                 }
             ],
-            "usage": { "prompt_tokens": 80, "completion_tokens": 15, "total_tokens": 95 }
+            "usage": { "prompt_tokens": 80, "completion_tokens": 15, "total_tokens": 95,
+                "completion_tokens_details": { "reasoning_tokens": 4 } }
         }
-        """));
+        """;
+        responses.Enqueue((200, finalResponseBody));
 
-        var executor = new QueuedMockHttpExecutor(responses);
+        var executor = new CapturingQueuedMockHttpExecutor(responses);
         var client = new OpenRouterClient("test-key", executor);
 
         var composer = new OpenRouterRequestComposer()
@@ -139,9 +267,16 @@ public class OpenRouterClientTests
         await Assert.That(capturedToolName).IsEqualTo("get_weather");
         await Assert.That(capturedArgs).Contains("Berlin");
 
-        // Aggregated usage (50+80 input, 30+15 output)
+        // Aggregated usage, but diagnostics describe the final round.
         await Assert.That(result.Usage!.InputTokens).IsEqualTo(130);
         await Assert.That(result.Usage!.OutputTokens).IsEqualTo(45);
+        await Assert.That(result.Usage!.ReasoningTokens).IsEqualTo(16);
+        await Assert.That(result.ResponseId).IsEqualTo("gen-final");
+        await Assert.That(result.Provider).IsEqualTo("Anthropic");
+        await Assert.That(result.NativeStopReason).IsEqualTo("end_turn");
+        await Assert.That(result.Response.Body).IsEqualTo(finalResponseBody);
+        await Assert.That(executor.CapturedRequests.Count).IsEqualTo(2);
+        await Assert.That(result.Request).IsEqualTo(executor.CapturedRequests[1]);
 
         await Assert.That(result.ToolRoundsExecuted).IsEqualTo(1);
         await Assert.That(result.AllToolCallsExecuted).IsNotNull();

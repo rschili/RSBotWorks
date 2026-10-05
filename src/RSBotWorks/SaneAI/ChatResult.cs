@@ -19,7 +19,8 @@ public record ChatResult
     /// <summary>Extracted text content from the response, if any.</summary>
     public string? TextContent { get; init; }
 
-    /// <summary>Aggregated token usage across all tool call rounds.</summary>
+    /// <summary>Aggregated token usage across all rounds. Null if usage was never reported;
+    /// individual input/output/reasoning totals are null if any round omitted that count.</summary>
     public TokenUsage? Usage { get; init; }
 
     /// <summary>Tool calls from the last response (only set if the loop hit the max rounds limit).</summary>
@@ -28,12 +29,21 @@ public record ChatResult
     /// <summary>Why the model stopped: "end_turn", "tool_use", "max_tokens", etc.</summary>
     public string? StopReason { get; init; }
 
+    /// <summary>The upstream provider's finish reason, before gateway normalization (last round).</summary>
+    public string? NativeStopReason { get; init; }
+
     /// <summary>The model that actually served the request.</summary>
     public string? ModelId { get; init; }
 
+    /// <summary>The generation/message ID returned by the API (last round).</summary>
+    public string? ResponseId { get; init; }
+
+    /// <summary>The upstream provider reported by the gateway, when available (last round).</summary>
+    public string? Provider { get; init; }
+
     /// <summary>
-    /// The raw JSON string of the "content" array from the last response.
-    /// Mainly used internally for tool call loops.
+    /// The raw JSON content array (Anthropic) or assistant message object (OpenRouter)
+    /// from the last response. Mainly used internally for tool call loops.
     /// </summary>
     public string? RawContentJson { get; init; }
 
@@ -49,16 +59,22 @@ public record ChatResult
 /// <summary>Token usage from the API response. Supports aggregation across multiple rounds.</summary>
 public record TokenUsage
 {
-    public int InputTokens { get; init; }
-    public int OutputTokens { get; init; }
+    /// <summary>Null means unknown/not reported, not zero.</summary>
+    public int? InputTokens { get; init; }
+    /// <summary>Includes reasoning tokens when the provider counts them as output.</summary>
+    public int? OutputTokens { get; init; }
+    /// <summary>Provider-reported reasoning token count, not inferred from visible reasoning text.</summary>
+    public int? ReasoningTokens { get; init; }
     public int? CacheCreationInputTokens { get; init; }
     public int? CacheReadInputTokens { get; init; }
 
-    /// <summary>Sum two usages together (for aggregating across tool call rounds).</summary>
+    /// <summary>Sum usages across rounds. Unknown input/output/reasoning counts propagate
+    /// so partial totals cannot masquerade as complete usage. Cache counts sum reported values.</summary>
     public TokenUsage Add(TokenUsage other) => new()
     {
         InputTokens = InputTokens + other.InputTokens,
         OutputTokens = OutputTokens + other.OutputTokens,
+        ReasoningTokens = ReasoningTokens + other.ReasoningTokens,
         CacheCreationInputTokens = CacheCreationInputTokens.HasValue || other.CacheCreationInputTokens.HasValue
             ? (CacheCreationInputTokens ?? 0) + (other.CacheCreationInputTokens ?? 0)
             : null,

@@ -81,7 +81,7 @@ public class OpenRouterClient
         // Fork so we don't mutate the caller's composer
         var working = composer.Fork();
 
-        var aggregatedUsage = new TokenUsage();
+        TokenUsage? aggregatedUsage = null;
         var allToolCalls = new List<ToolCall>();
 
         // round 0 = initial request, rounds 1..maxToolRounds = tool call round-trips
@@ -97,8 +97,12 @@ public class OpenRouterClient
 
             var result = ParseResponse(request, response);
 
-            if (result.Usage != null)
-                aggregatedUsage = aggregatedUsage.Add(result.Usage);
+            // Do not invent zero usage when a provider omits it. A missing round
+            // also makes otherwise reported token totals incomplete/unknown.
+            if (round == 0)
+                aggregatedUsage = result.Usage;
+            else if (aggregatedUsage != null || result.Usage != null)
+                aggregatedUsage = (aggregatedUsage ?? new TokenUsage()).Add(result.Usage ?? new TokenUsage());
 
             // No tool calls or no executor → final response
             if (!result.HasToolCalls || toolExecutor == null)
@@ -155,28 +159,44 @@ public class OpenRouterClient
         };
     }
 
+    private static string? GetString(JsonElement element, string name)
+        => element.ValueKind == JsonValueKind.Object
+            && element.TryGetProperty(name, out var value)
+            && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
+
+    private static int? GetTokenCount(JsonElement element, string name)
+        => element.ValueKind == JsonValueKind.Object
+            && element.TryGetProperty(name, out var value)
+            && value.ValueKind == JsonValueKind.Number
+            && value.TryGetInt32(out var count) ? count : null;
+
     private static ChatResult ParseResponse(RawHttpRequest request, RawHttpResponse response)
     {
         try
         {
             using var doc = JsonDocument.Parse(response.Body);
             var root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object)
+                throw new JsonException("Expected an OpenRouter response object.");
 
             string? textContent = null;
             string? rawMessageJson = null;
             string? stopReason = null;
+            string? nativeStopReason = null;
             List<ToolCall>? toolCalls = null;
 
             if (root.TryGetProperty("choices", out var choices)
                 && choices.ValueKind == JsonValueKind.Array
-                && choices.GetArrayLength() > 0)
+                && choices.GetArrayLength() > 0
+                && choices[0].ValueKind == JsonValueKind.Object)
             {
                 var choice = choices[0];
 
-                if (choice.TryGetProperty("finish_reason", out var fr) && fr.ValueKind == JsonValueKind.String)
-                    stopReason = fr.GetString();
+                stopReason = GetString(choice, "finish_reason");
+                nativeStopReason = GetString(choice, "native_finish_reason");
 
-                if (choice.TryGetProperty("message", out var message))
+                if (choice.TryGetProperty("message", out var message)
+                    && message.ValueKind == JsonValueKind.Object)
                 {
                     rawMessageJson = message.GetRawText();
 
@@ -219,16 +239,19 @@ public class OpenRouterClient
                 if (usageElement.TryGetProperty("prompt_tokens_details", out var ptd)
                     && ptd.ValueKind == JsonValueKind.Object)
                 {
-                    if (ptd.TryGetProperty("cached_tokens", out var ct) && ct.ValueKind == JsonValueKind.Number)
-                        cachedTokens = ct.GetInt32();
-                    if (ptd.TryGetProperty("cache_write_tokens", out var cw) && cw.ValueKind == JsonValueKind.Number)
-                        cacheWriteTokens = cw.GetInt32();
+                    cachedTokens = GetTokenCount(ptd, "cached_tokens");
+                    cacheWriteTokens = GetTokenCount(ptd, "cache_write_tokens");
                 }
+
+                int? reasoningTokens = null;
+                if (usageElement.TryGetProperty("completion_tokens_details", out var ctd))
+                    reasoningTokens = GetTokenCount(ctd, "reasoning_tokens");
 
                 usage = new TokenUsage
                 {
-                    InputTokens = usageElement.TryGetProperty("prompt_tokens", out var pt) ? pt.GetInt32() : 0,
-                    OutputTokens = usageElement.TryGetProperty("completion_tokens", out var ct2) ? ct2.GetInt32() : 0,
+                    InputTokens = GetTokenCount(usageElement, "prompt_tokens"),
+                    OutputTokens = GetTokenCount(usageElement, "completion_tokens"),
+                    ReasoningTokens = reasoningTokens,
                     CacheReadInputTokens = cachedTokens,
                     CacheCreationInputTokens = cacheWriteTokens,
                 };
@@ -242,7 +265,10 @@ public class OpenRouterClient
                 Usage = usage,
                 ToolCalls = toolCalls?.AsReadOnly(),
                 StopReason = stopReason,
-                ModelId = root.TryGetProperty("model", out var m) ? m.GetString() : null,
+                NativeStopReason = nativeStopReason,
+                ModelId = GetString(root, "model"),
+                ResponseId = GetString(root, "id"),
+                Provider = GetString(root, "provider"),
                 RawContentJson = rawMessageJson
             };
         }

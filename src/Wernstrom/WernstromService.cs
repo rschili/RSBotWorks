@@ -337,9 +337,10 @@ public partial class WernstromService : IDisposable
 
             LogAiResult("Chat", result, stopwatch.Elapsed);
 
-            if (string.IsNullOrEmpty(result.TextContent))
+            if (string.IsNullOrWhiteSpace(result.TextContent))
             {
-                Logger.LogWarning("Got an empty response to: {Message}", arg.Content.Substring(0, Math.Min(arg.Content.Length, 100)));
+                Logger.LogWarning("Got an empty response to: {Message}. Generation: {ResponseId}",
+                    arg.Content.Substring(0, Math.Min(arg.Content.Length, 100)), result.ResponseId);
                 return;
             }
 
@@ -368,11 +369,14 @@ public partial class WernstromService : IDisposable
             var code = ex.StatusCode.HasValue ? $" (HTTP {(int)ex.StatusCode.Value})" : "";
             await arg.Channel.SendMessageAsync($"Sorry, geht gerade nicht{code}.").ConfigureAwait(false);
         }
-        catch (AnthropicApiException ex)
+        catch (OpenRouterApiException ex)
         {
-            Logger.LogError(ex, "[Chat] Anthropic API error ({ErrorType}) during chat. Message: {Message}. ErrorBody: {ErrorBody}. Curl: {Curl}",
-                ex.ErrorType, arg.Content.Substring(0, Math.Min(arg.Content.Length, 100)), ex.ErrorBody, ex.ToCurl());
-            var errorCode = !string.IsNullOrEmpty(ex.ErrorType) ? $" ({ex.ErrorType})" : "";
+            // Do not log the exception's ToString()/curl: that includes the full request history.
+            Logger.LogError("[Chat] OpenRouter API error: HTTP {StatusCode}, code {ErrorCode}, {ErrorMessage}. " +
+                "RequestBytes: {RequestBytes}. ResponseBody (truncated={ResponseBodyTruncated}): {ResponseBody}",
+                ex.StatusCode, ex.ErrorCode, ex.Message, Encoding.UTF8.GetByteCount(ex.Request.Body ?? ""),
+                ex.ErrorBody.Length > MaxDiagnosticResponseChars, DiagnosticResponseExcerpt(ex.ErrorBody));
+            var errorCode = ex.ErrorCode.HasValue ? $" ({ex.ErrorCode})" : "";
             await arg.Channel.SendMessageAsync($"Sorry, geht gerade nicht{errorCode}.").ConfigureAwait(false);
         }
         catch (Exception ex)
@@ -405,21 +409,33 @@ public partial class WernstromService : IDisposable
         }
     }
 
-    private void LogAiResult(string context, ChatResult result, TimeSpan elapsed)
+    private const int MaxDiagnosticResponseChars = 16_384;
+
+    private static string DiagnosticResponseExcerpt(string body)
+        => body.Length <= MaxDiagnosticResponseChars ? body : body[..MaxDiagnosticResponseChars];
+
+    internal void LogAiResult(string context, ChatResult result, TimeSpan elapsed)
     {
-        var usage = result.Usage;
-        if (usage != null)
+        // Token counts span all rounds; request/response sizes and identifiers describe
+        // the final HTTP exchange. Null token counts mean unknown, not zero.
+        Logger.LogInformation("[{Context}] {InputTokens}in/{OutputTokens}out tokens ({ReasoningTokens} reasoning) in {Elapsed:F2}s; " +
+            "{ToolRounds} tool round(s) ({Model}, {Provider}); finish={FinishReason}, native={NativeFinishReason}; " +
+            "last request={RequestBytes} UTF-8 bytes, response={ResponseBytes} bytes, text={TextChars} chars; " +
+            "HTTP {StatusCode}, generation={ResponseId}",
+            context, result.Usage?.InputTokens, result.Usage?.OutputTokens, result.Usage?.ReasoningTokens,
+            elapsed.TotalSeconds, result.ToolRoundsExecuted, result.ModelId, result.Provider,
+            result.StopReason, result.NativeStopReason, Encoding.UTF8.GetByteCount(result.Request.Body ?? ""),
+            Encoding.UTF8.GetByteCount(result.Response.Body), result.TextContent?.Length ?? 0,
+            result.Response.StatusCode, result.ResponseId);
+
+        if (string.IsNullOrWhiteSpace(result.TextContent))
         {
-            var toolInfo = result.ToolRoundsExecuted > 0
-                ? $", {result.ToolRoundsExecuted} tool round(s)"
-                : "";
-            Logger.LogInformation("[{Context}] {InputTokens}in/{OutputTokens}out tokens in {Elapsed:F2}s{ToolInfo} ({Model})",
-                context, usage.InputTokens, usage.OutputTokens, elapsed.TotalSeconds, toolInfo, result.ModelId);
-        }
-        else
-        {
-            Logger.LogInformation("[{Context}] completed in {Elapsed:F2}s ({Model})",
-                context, elapsed.TotalSeconds, result.ModelId);
+            // The response may contain reasoning or echoed user text: keep this in private
+            // diagnostic logs, bounded, and only for anomalies. Never dump request headers/body.
+            Logger.LogWarning("[{Context}] AI returned no usable text. Generation: {ResponseId}. " +
+                "ResponseBody (truncated={ResponseBodyTruncated}): {ResponseBody}",
+                context, result.ResponseId, result.Response.Body.Length > MaxDiagnosticResponseChars,
+                DiagnosticResponseExcerpt(result.Response.Body));
         }
     }
 

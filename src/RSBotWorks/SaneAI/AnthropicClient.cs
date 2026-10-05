@@ -55,7 +55,7 @@ public class AnthropicClient
         // Fork so we don't mutate the caller's composer
         var working = composer.Fork();
 
-        var aggregatedUsage = new TokenUsage();
+        TokenUsage? aggregatedUsage = null;
         var allToolCalls = new List<ToolCall>();
 
         // round 0 = initial request, rounds 1..maxToolRounds = tool call round-trips
@@ -71,8 +71,11 @@ public class AnthropicClient
 
             var result = ParseResponse(request, response);
 
-            if (result.Usage != null)
-                aggregatedUsage = aggregatedUsage.Add(result.Usage);
+            // Preserve unknown usage, including gaps in a multi-round response.
+            if (round == 0)
+                aggregatedUsage = result.Usage;
+            else if (aggregatedUsage != null || result.Usage != null)
+                aggregatedUsage = (aggregatedUsage ?? new TokenUsage()).Add(result.Usage ?? new TokenUsage());
 
             // No tool calls or no executor → final response
             if (!result.HasToolCalls || toolExecutor == null)
@@ -121,6 +124,11 @@ public class AnthropicClient
         Body = jsonBody
     };
 
+    private static int? GetTokenCount(JsonElement element, string name)
+        => element.TryGetProperty(name, out var value)
+            && value.ValueKind == JsonValueKind.Number
+            && value.TryGetInt32(out var count) ? count : null;
+
     private static ChatResult ParseResponse(RawHttpRequest request, RawHttpResponse response)
     {
         try
@@ -165,14 +173,15 @@ public class AnthropicClient
 
             // Token usage
             TokenUsage? usage = null;
-            if (root.TryGetProperty("usage", out var usageElement))
+            if (root.TryGetProperty("usage", out var usageElement)
+                && usageElement.ValueKind == JsonValueKind.Object)
             {
                 usage = new TokenUsage
                 {
-                    InputTokens = usageElement.TryGetProperty("input_tokens", out var it) ? it.GetInt32() : 0,
-                    OutputTokens = usageElement.TryGetProperty("output_tokens", out var ot) ? ot.GetInt32() : 0,
-                    CacheCreationInputTokens = usageElement.TryGetProperty("cache_creation_input_tokens", out var cc) ? cc.GetInt32() : null,
-                    CacheReadInputTokens = usageElement.TryGetProperty("cache_read_input_tokens", out var cr) ? cr.GetInt32() : null,
+                    InputTokens = GetTokenCount(usageElement, "input_tokens"),
+                    OutputTokens = GetTokenCount(usageElement, "output_tokens"),
+                    CacheCreationInputTokens = GetTokenCount(usageElement, "cache_creation_input_tokens"),
+                    CacheReadInputTokens = GetTokenCount(usageElement, "cache_read_input_tokens"),
                 };
             }
 
@@ -185,6 +194,7 @@ public class AnthropicClient
                 ToolCalls = toolCalls?.AsReadOnly(),
                 StopReason = root.TryGetProperty("stop_reason", out var sr) ? sr.GetString() : null,
                 ModelId = root.TryGetProperty("model", out var m) ? m.GetString() : null,
+                ResponseId = root.TryGetProperty("id", out var id) ? id.GetString() : null,
                 RawContentJson = rawContentJson
             };
         }
