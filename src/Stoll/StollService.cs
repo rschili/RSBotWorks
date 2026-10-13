@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using System.Diagnostics;
+using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Markdig;
@@ -136,7 +137,7 @@ public partial class StollService
         //.SetEffort("low");
 
         ChatTemplate = baseComposer.Fork()
-            .SetMaxTokens(1000)
+            .SetMaxTokens(2500)
             .EnableWebSearch(city: "Heidelberg", country: "DE", timezone: "Europe/Berlin")
             .AddTools(toolDefinitions);
 
@@ -327,9 +328,10 @@ public partial class StollService
 
             LogAiResult("Chat", result, stopwatch.Elapsed);
 
-            if (string.IsNullOrEmpty(result.TextContent))
+            if (string.IsNullOrWhiteSpace(result.TextContent))
             {
-                Logger.LogWarning("AI did not return a response to: {SanitizedMessage}", sanitizedMessage.Length > 50 ? sanitizedMessage[..50] : sanitizedMessage);
+                Logger.LogWarning("Got an empty response to: {SanitizedMessage}. Generation: {ResponseId}",
+                    sanitizedMessage.Length > 100 ? sanitizedMessage[..100] : sanitizedMessage, result.ResponseId);
                 return;
             }
 
@@ -366,11 +368,14 @@ public partial class StollService
             var code = ex.StatusCode.HasValue ? $" (HTTP {(int)ex.StatusCode.Value})" : "";
             await message.SendResponseAsync($"Sorry, geht gerade nicht{code}.", isReply: true).ConfigureAwait(false);
         }
-        catch (AnthropicApiException ex)
+        catch (OpenRouterApiException ex)
         {
-            Logger.LogError(ex, "[Chat] Anthropic API error ({ErrorType}) during chat. Message: {Message}. ErrorBody: {ErrorBody}. Curl: {Curl}",
-                ex.ErrorType, sanitizedMessage.Length > 100 ? sanitizedMessage[..100] : sanitizedMessage, ex.ErrorBody, ex.ToCurl());
-            var errorCode = !string.IsNullOrEmpty(ex.ErrorType) ? $" ({ex.ErrorType})" : "";
+            // Do not log the exception's ToString()/curl: that includes the full request history.
+            Logger.LogError("[Chat] OpenRouter API error: HTTP {StatusCode}, code {ErrorCode}, {ErrorMessage}. " +
+                "RequestBytes: {RequestBytes}. ResponseBody (truncated={ResponseBodyTruncated}): {ResponseBody}",
+                ex.StatusCode, ex.ErrorCode, ex.Message, Encoding.UTF8.GetByteCount(ex.Request.Body ?? ""),
+                ex.ErrorBody.Length > MaxDiagnosticResponseChars, DiagnosticResponseExcerpt(ex.ErrorBody));
+            var errorCode = ex.ErrorCode.HasValue ? $" ({ex.ErrorCode})" : "";
             await message.SendResponseAsync($"Sorry, geht gerade nicht{errorCode}.", isReply: true).ConfigureAwait(false);
         }
         catch (Exception ex)
@@ -403,21 +408,33 @@ public partial class StollService
         }
     }
 
+    private const int MaxDiagnosticResponseChars = 16_384;
+
+    private static string DiagnosticResponseExcerpt(string body)
+        => body.Length <= MaxDiagnosticResponseChars ? body : body[..MaxDiagnosticResponseChars];
+
     private void LogAiResult(string context, ChatResult result, TimeSpan elapsed)
     {
-        var usage = result.Usage;
-        if (usage != null)
+        // Token counts span all rounds; request/response sizes and identifiers describe
+        // the final HTTP exchange. Null token counts mean unknown, not zero.
+        Logger.LogInformation("[{Context}] {InputTokens}in/{OutputTokens}out tokens ({ReasoningTokens} reasoning) in {Elapsed:F2}s; " +
+            "{ToolRounds} tool round(s) ({Model}, {Provider}); finish={FinishReason}, native={NativeFinishReason}; " +
+            "last request={RequestBytes} UTF-8 bytes, response={ResponseBytes} bytes, text={TextChars} chars; " +
+            "HTTP {StatusCode}, generation={ResponseId}",
+            context, result.Usage?.InputTokens, result.Usage?.OutputTokens, result.Usage?.ReasoningTokens,
+            elapsed.TotalSeconds, result.ToolRoundsExecuted, result.ModelId, result.Provider,
+            result.StopReason, result.NativeStopReason, Encoding.UTF8.GetByteCount(result.Request.Body ?? ""),
+            Encoding.UTF8.GetByteCount(result.Response.Body), result.TextContent?.Length ?? 0,
+            result.Response.StatusCode, result.ResponseId);
+
+        if (string.IsNullOrWhiteSpace(result.TextContent))
         {
-            var toolInfo = result.ToolRoundsExecuted > 0
-                ? $", {result.ToolRoundsExecuted} tool round(s)"
-                : "";
-            Logger.LogInformation("[{Context}] {InputTokens}in/{OutputTokens}out tokens in {Elapsed:F2}s{ToolInfo} ({Model})",
-                context, usage.InputTokens, usage.OutputTokens, elapsed.TotalSeconds, toolInfo, result.ModelId);
-        }
-        else
-        {
-            Logger.LogInformation("[{Context}] completed in {Elapsed:F2}s ({Model})",
-                context, elapsed.TotalSeconds, result.ModelId);
+            // The response may contain reasoning or echoed user text: keep this in private
+            // diagnostic logs, bounded, and only for anomalies. Never dump request headers/body.
+            Logger.LogWarning("[{Context}] AI returned no usable text. Generation: {ResponseId}. " +
+                "ResponseBody (truncated={ResponseBodyTruncated}): {ResponseBody}",
+                context, result.ResponseId, result.Response.Body.Length > MaxDiagnosticResponseChars,
+                DiagnosticResponseExcerpt(result.Response.Body));
         }
     }
 

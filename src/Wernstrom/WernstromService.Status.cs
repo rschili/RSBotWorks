@@ -84,10 +84,12 @@ public partial class WernstromService
                 Logger.LogError(ex, "Failed to parse status messages JSON: {Text}", result.TextContent);
             }
         }
-        catch (AnthropicApiException ex)
+        catch (OpenRouterApiException ex)
         {
-            Logger.LogError(ex, "Anthropic API error ({ErrorType}) during status message generation. Curl: {Curl}",
-                ex.ErrorType, ex.ToCurl());
+            Logger.LogError("[Status] OpenRouter API error: HTTP {StatusCode}, code {ErrorCode}, {ErrorMessage}. " +
+                "ResponseBody (truncated={ResponseBodyTruncated}): {ResponseBody}",
+                ex.StatusCode, ex.ErrorCode, ex.Message,
+                ex.ErrorBody.Length > MaxDiagnosticResponseChars, DiagnosticResponseExcerpt(ex.ErrorBody));
         }
         catch (Exception ex)
         {

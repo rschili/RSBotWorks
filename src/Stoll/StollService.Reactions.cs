@@ -123,10 +123,12 @@ public partial class StollService
 
             await message.SendReactionAsync(reaction).ConfigureAwait(false);
         }
-        catch (AnthropicApiException ex)
+        catch (OpenRouterApiException ex)
         {
-            Logger.LogError(ex, "[Reaction] Anthropic API error ({ErrorType}). Message: {Message}",
-                ex.ErrorType, sanitizedMessage.Length > 100 ? sanitizedMessage[..100] : sanitizedMessage);
+            Logger.LogError("[Reaction] OpenRouter API error: HTTP {StatusCode}, code {ErrorCode}, {ErrorMessage}. " +
+                "ResponseBody (truncated={ResponseBodyTruncated}): {ResponseBody}",
+                ex.StatusCode, ex.ErrorCode, ex.Message,
+                ex.ErrorBody.Length > MaxDiagnosticResponseChars, DiagnosticResponseExcerpt(ex.ErrorBody));
         }
         catch (Exception ex)
         {

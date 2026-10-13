@@ -189,8 +189,10 @@ public partial class WernstromService
         }
         catch (OpenRouterApiException ex)
         {
-            Logger.LogError(ex, "OpenRouter API error ({ErrorCode}) during reaction. Message: {Message}. ErrorBody: {ErrorBody}. Curl: {Curl}",
-                ex.ErrorCode, arg.Content.Substring(0, Math.Min(arg.Content.Length, 100)), ex.ErrorBody, ex.ToCurl());
+            Logger.LogError("[Reaction] OpenRouter API error: HTTP {StatusCode}, code {ErrorCode}, {ErrorMessage}. " +
+                "ResponseBody (truncated={ResponseBodyTruncated}): {ResponseBody}",
+                ex.StatusCode, ex.ErrorCode, ex.Message,
+                ex.ErrorBody.Length > MaxDiagnosticResponseChars, DiagnosticResponseExcerpt(ex.ErrorBody));
         }
         catch (Exception ex)
         {

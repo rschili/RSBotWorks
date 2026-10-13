@@ -129,7 +129,7 @@ public partial class WernstromService : IDisposable
         //.SetEffort("low");
 
         ChatTemplate = baseComposer.Fork()
-            .SetMaxTokens(2000)
+            .SetMaxTokens(2500)
             .EnableWebSearch(city: "Heidelberg", country: "DE", timezone: "Europe/Berlin")
             .AddTools(toolDefinitions);
 
@@ -562,7 +562,7 @@ public partial class WernstromService : IDisposable
         return false;
     }
 
-    private string ReplaceDiscordTags(IReadOnlyCollection<ITag> tags, string message, JoinedTextChannel<ulong> channel)
+    internal string ReplaceDiscordTags(IReadOnlyCollection<ITag> tags, string message, JoinedTextChannel<ulong> channel)
     {
         var text = new StringBuilder(message);
         int indexOffset = 0;
@@ -574,7 +574,9 @@ public partial class WernstromService : IDisposable
             var user = tag.Value as IUser;
             if (user == null)
             {
-                Logger.LogWarning("User ID not found for replacing tag of type {Type}: {Value}", tag.Type.ToString(), tag.Value.ToString());
+                // Discord can parse a mention without resolving its user (Value is then null).
+                Logger.LogWarning("User could not be resolved for tag {Type} with ID {UserId} in channel {ChannelId}: {Value}",
+                    tag.Type, tag.Key, channel.Id, tag.Value);
                 text.Remove(tag.Index + indexOffset, tag.Length);
                 indexOffset -= tag.Length;
                 continue;
