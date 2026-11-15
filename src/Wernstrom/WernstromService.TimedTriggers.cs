@@ -19,32 +19,6 @@ public partial class WernstromService
 {
     private readonly List<(TimeOnly CestTime, Func<Task> Operation)> _scheduledOperations = new();
 
-    public readonly TimeZoneInfo CESTTimeZone = GetCESTTimeZone();
-
-    private static TimeZoneInfo GetCESTTimeZone()
-    {
-        try
-        {
-            return TimeZoneInfo.FindSystemTimeZoneById("Central European Standard Time");
-        }
-        catch (TimeZoneNotFoundException)
-        {
-            try
-            {
-                // Try alternative ID for Linux/macOS
-                return TimeZoneInfo.FindSystemTimeZoneById("Europe/Berlin");
-            }
-            catch (TimeZoneNotFoundException)
-            {
-                return TimeZoneInfo.Local;
-            }
-        }
-        catch (InvalidTimeZoneException)
-        {
-            return TimeZoneInfo.Local;
-        }
-    }
-
     /// <summary>
     /// Registers a daily operation to be executed at the specified CEST time.
     /// </summary>
@@ -64,7 +38,7 @@ public partial class WernstromService
             try
             {
                 var utcNow = DateTime.UtcNow;
-                var cestNow = TimeZoneInfo.ConvertTimeFromUtc(utcNow, CESTTimeZone);
+                var cestNow = TimeZoneInfo.ConvertTimeFromUtc(utcNow, BotTimeZone);
                 var cestCurrentTime = TimeOnly.FromDateTime(cestNow);
 
                 // Find the next scheduled operation
@@ -81,7 +55,7 @@ public partial class WernstromService
                 {
                     // There's an operation later today
                     var nextCestDateTime = cestNow.Date.Add(nextTodayOperation.CestTime.ToTimeSpan());
-                    nextExecutionUtc = TimeZoneInfo.ConvertTimeToUtc(nextCestDateTime, CESTTimeZone);
+                    nextExecutionUtc = TimeZoneInfo.ConvertTimeToUtc(nextCestDateTime, BotTimeZone);
                     nextOperation = nextTodayOperation;
                 }
                 else
@@ -91,7 +65,7 @@ public partial class WernstromService
                     if (earliestOperation != default)
                     {
                         var nextCestDateTime = cestNow.Date.AddDays(1).Add(earliestOperation.CestTime.ToTimeSpan());
-                        nextExecutionUtc = TimeZoneInfo.ConvertTimeToUtc(nextCestDateTime, CESTTimeZone);
+                        nextExecutionUtc = TimeZoneInfo.ConvertTimeToUtc(nextCestDateTime, BotTimeZone);
                         nextOperation = earliestOperation;
                     }
                     else
@@ -105,7 +79,7 @@ public partial class WernstromService
                 var delay = nextExecutionUtc - utcNow;
                 if (delay > TimeSpan.Zero)
                 {
-                    var cestExecutionTime = TimeZoneInfo.ConvertTimeFromUtc(nextExecutionUtc, CESTTimeZone);
+                    var cestExecutionTime = TimeZoneInfo.ConvertTimeFromUtc(nextExecutionUtc, BotTimeZone);
                     Logger.LogInformation("Next daily operation scheduled for {NextTime} CEST ({Delay} from now)", 
                         cestExecutionTime.ToString("yyyy-MM-dd HH:mm:ss"), 
                         delay.ToString(@"hh\:mm\:ss"));
@@ -142,7 +116,7 @@ public partial class WernstromService
         catch (Exception ex)
         {
             var utcNow = DateTime.UtcNow;
-            var cestNow = TimeZoneInfo.ConvertTimeFromUtc(utcNow, CESTTimeZone);
+            var cestNow = TimeZoneInfo.ConvertTimeFromUtc(utcNow, BotTimeZone);
             Logger.LogError(ex, "Error during scheduled operation at {Time} CEST", cestNow.ToString("HH:mm"));
         }
     }

@@ -116,6 +116,38 @@ public class WernstromHistoryTests
         await Assert.That(WernstromService.FormatTimestamp(Trigger.AddHours(-12), Trigger)).IsEqualTo("11.11. 22:00");
     }
 
+    [Test]
+    public async Task TruncateMessage_CutsLongMessagesOnly()
+    {
+        await Assert.That(WernstromService.TruncateMessage("kurz")).IsEqualTo("kurz");
+
+        var cut = WernstromService.TruncateMessage(new string('x', 1500));
+        await Assert.That(cut.Length).IsEqualTo(WernstromService.MaxMessageChars + 1);
+        await Assert.That(cut).EndsWith("…");
+    }
+
+    [Test]
+    public async Task TruncateForDiscord_CutsAtWordBoundaryWithinLimit()
+    {
+        var words = string.Concat(Enumerable.Repeat("wort <@123456789012345678> ", 100)); // ~2800 chars
+
+        var text = WernstromService.TruncateForDiscord(words);
+
+        await Assert.That(text.Length).IsLessThanOrEqualTo(WernstromService.MaxDiscordMessageLength);
+        await Assert.That(text).EndsWith("…");
+        // Mentions must not be split
+        await Assert.That(text.TrimEnd('…')).EndsWith(">").Or.EndsWith("wort");
+        await Assert.That(WernstromService.TruncateForDiscord("kurz")).IsEqualTo("kurz");
+    }
+
+    [Test]
+    public async Task TruncateForDiscord_HardCutWithoutWhitespace()
+    {
+        var text = WernstromService.TruncateForDiscord(new string('x', 3000));
+
+        await Assert.That(text.Length).IsEqualTo(WernstromService.MaxDiscordMessageLength);
+    }
+
     /// <summary>Messages newest first, ids 1..count, one minute apart (or <paramref name="spacing"/>).</summary>
     private static List<IMessage> CreateMessages(int count, int contentLength, TimeSpan? spacing = null)
     {

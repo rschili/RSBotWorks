@@ -34,6 +34,9 @@ public partial class WernstromService
     /// <summary>Total character budget for history text. Lets us include many short messages or fewer long ones.</summary>
     private const int MaxHistoryChars = 6000;
 
+    /// <summary>User messages (history and trigger) are cut to this length. Wernstrom's own messages are left intact.</summary>
+    internal const int MaxMessageChars = 1000;
+
     /// <summary>Messages older than this are dropped once the minimum is satisfied.</summary>
     private static readonly TimeSpan MaxHistoryAge = TimeSpan.FromHours(4);
 
@@ -57,8 +60,6 @@ public partial class WernstromService
     private readonly ConcurrentDictionary<(ulong MessageId, string EmoteKey, int Count), string[]> ReactorCache = new();
 
     private Lazy<IReadOnlyDictionary<string, string>> EmoteNames { get; init; }
-
-    private static readonly TimeZoneInfo ChatTimeZone = ResolveChatTimeZone();
 
     internal readonly record struct HistorySelection(IMessage Message, bool IncludeImages);
 
@@ -87,7 +88,7 @@ public partial class WernstromService
             if (haveMinimum && triggerTime - message.Timestamp > MaxHistoryAge)
                 break;
 
-            int cost = message.Content?.Length ?? 0;
+            int cost = Math.Min(message.Content?.Length ?? 0, MaxMessageChars);
             if (haveMinimum && cost > remainingChars)
                 break;
 
@@ -112,7 +113,7 @@ public partial class WernstromService
             {
                 int totalChars = 0;
                 for (int i = 0; i <= anchorIndex; i++)
-                    totalChars += newestFirst[i].Content?.Length ?? 0;
+                    totalChars += Math.Min(newestFirst[i].Content?.Length ?? 0, MaxMessageChars);
                 if (totalChars <= MaxStickyHistoryChars)
                     count = anchorIndex + 1;
             }
@@ -174,7 +175,7 @@ public partial class WernstromService
             var replyContext = FormatReplyContext(message, channel);
             if (replyContext != null)
                 text.Append(' ').Append(replyContext);
-            text.Append(": ").Append(ReplaceDiscordTags(message.Tags, message.Content, channel));
+            text.Append(": ").Append(TruncateMessage(ReplaceDiscordTags(message.Tags, message.Content, channel)));
 
             var attachments = includeImages ? await ExtractImageAttachments(message).ConfigureAwait(false) : null;
             // Images were dropped (too far back) but leave a cheap marker so the
@@ -305,6 +306,18 @@ public partial class WernstromService
         return snippet.Length == 0 ? $"(antwortet {target})" : $"(antwortet {target}: „{snippet}“)";
     }
 
+    /// <summary>Cuts a user message to <see cref="MaxMessageChars"/>, marking the cut with an ellipsis.</summary>
+    internal static string TruncateMessage(string text)
+    {
+        if (text.Length <= MaxMessageChars)
+            return text;
+
+        int cut = MaxMessageChars;
+        if (char.IsHighSurrogate(text[cut - 1]))
+            cut--; // do not split an emoji
+        return text[..cut] + "…";
+    }
+
     private static readonly Regex WhitespaceRegex = new(@"\s+", RegexOptions.Compiled);
 
     /// <summary>Single-line excerpt of a replied-to message, truncated with an ellipsis.</summary>
@@ -326,22 +339,10 @@ public partial class WernstromService
     /// </summary>
     internal static string FormatTimestamp(DateTimeOffset timestamp, DateTimeOffset referenceTime)
     {
-        var local = TimeZoneInfo.ConvertTime(timestamp, ChatTimeZone);
-        var reference = TimeZoneInfo.ConvertTime(referenceTime, ChatTimeZone);
+        var local = TimeZoneInfo.ConvertTime(timestamp, BotTimeZone);
+        var reference = TimeZoneInfo.ConvertTime(referenceTime, BotTimeZone);
         var format = local.Date == reference.Date ? "HH:mm" : "dd.MM. HH:mm";
         return local.ToString(format, CultureInfo.InvariantCulture);
-    }
-
-    private static TimeZoneInfo ResolveChatTimeZone()
-    {
-        try
-        {
-            return TimeZoneInfo.FindSystemTimeZoneById("Europe/Berlin");
-        }
-        catch (Exception)
-        {
-            return TimeZoneInfo.Local;
-        }
     }
 
     private static bool IsNoResponseMarker(IEmote emote) => emote.Name?.Contains(NoReactionEmoji) == true;
@@ -368,12 +369,6 @@ public partial class WernstromService
 
     private ChannelUser<ulong> ResolveChannelUser(IUser author, JoinedTextChannel<ulong> channel)
     {
-        var user = channel.GetUser(author.Id);
-        if (user == null)
-        {
-            user = GenerateChannelUser(author);
-            channel.Users = channel.Users.Add(user);
-        }
-        return user;
+        return channel.GetOrAddUser(author.Id, () => GenerateChannelUser(author));
     }
 }

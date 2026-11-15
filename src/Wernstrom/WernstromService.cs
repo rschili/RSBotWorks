@@ -28,6 +28,24 @@ public partial class WernstromService : IDisposable
 
     public string DiscordToken => Config.DiscordToken;
 
+    /// <summary>
+    /// The time zone of the chat (Germany, CET/CEST). Used for timestamps in the prompt and for daily triggers.
+    /// IANA ids work on Windows too since .NET 6 (via ICU); falls back to the machine's zone.
+    /// </summary>
+    internal static readonly TimeZoneInfo BotTimeZone = ResolveBotTimeZone();
+
+    private static TimeZoneInfo ResolveBotTimeZone()
+    {
+        try
+        {
+            return TimeZoneInfo.FindSystemTimeZoneById("Europe/Berlin");
+        }
+        catch (Exception ex) when (ex is TimeZoneNotFoundException or InvalidTimeZoneException)
+        {
+            return TimeZoneInfo.Local;
+        }
+    }
+
     public WernstromServiceConfig Config { get; init; }
 
     private OpenRouterClient AiClient { get; init; }
@@ -243,7 +261,7 @@ public partial class WernstromService : IDisposable
             LogSeverity.Debug => LogLevel.Debug,
             _ => LogLevel.None
         };
-        Logger.Log(logLevel, message.Exception, $"DiscordClientLog: ${message.Message}");
+        Logger.Log(logLevel, message.Exception, "DiscordClientLog: {DiscordMessage}", message.Message);
         return Task.CompletedTask;
     }
 
@@ -254,15 +272,16 @@ public partial class WernstromService : IDisposable
         if (arg.Type != MessageType.Default && arg.Type != MessageType.Reply)
             return;
 
-        var cachedChannel = TextChannels.FirstOrDefault(c => c.Id == arg.Channel.Id);
+        var cache = Cache; // snapshot, InitializeCache may swap it on reconnect
+        var cachedChannel = cache.GetChannel(arg.Channel.Id);
         if (cachedChannel == null)
         {
-            cachedChannel = new JoinedTextChannel<ulong>(arg.Channel.Id, arg.Channel.Name, await GetChannelUsers(arg.Channel).ConfigureAwait(false));
-            Cache.Channels = TextChannels.Add(cachedChannel); // TODO: This may add duplicates, but since it's only a cache it should not matter
+            // Concurrent first messages may both build the channel; GetOrAddChannel keeps exactly one.
+            cachedChannel = cache.GetOrAddChannel(new JoinedTextChannel<ulong>(arg.Channel.Id, arg.Channel.Name,
+                await GetChannelUsers(arg.Channel).ConfigureAwait(false)));
         }
 
-        var cachedUser = cachedChannel.GetUser(arg.Author.Id);
-        if (cachedUser == null)
+        if (cachedChannel.GetUser(arg.Author.Id) == null)
         {
             var user = await arg.Channel.GetUserAsync(arg.Author.Id).ConfigureAwait(false);
             if (user == null)
@@ -271,18 +290,11 @@ public partial class WernstromService : IDisposable
                 return;
             }
 
-            cachedUser = GenerateChannelUser(user);
-            cachedChannel.Users = cachedChannel.Users.Add(cachedUser);
+            cachedChannel.GetOrAddUser(user.Id, () => GenerateChannelUser(user));
         }
 
         if (string.IsNullOrWhiteSpace(arg.Content))
             return; // nothing to process
-
-        string inputMessage = arg.Content;
-
-        string sanitizedMessage = ReplaceDiscordTags(arg.Tags, inputMessage, cachedChannel);
-        if (sanitizedMessage.Length > 1000)
-            sanitizedMessage = sanitizedMessage[..1000];
 
         var isFromSelf = arg.Author.Id == DiscordClient.CurrentUser.Id;
 
@@ -359,7 +371,7 @@ public partial class WernstromService : IDisposable
                 return;
             }
 
-            var text = RestoreDiscordTags(result.TextContent, cachedChannel, out var hasMentions).Trim();
+            var text = TruncateForDiscord(RestoreDiscordTags(result.TextContent, cachedChannel, out var hasMentions).Trim());
 
             // Set messageReference only if response took longer than 30 seconds
             MessageReference? messageReference = stopwatch.Elapsed.TotalSeconds > 30
@@ -447,6 +459,28 @@ public partial class WernstromService : IDisposable
         }
     }
 
+    /// <summary>Discord rejects messages over 2000 characters.</summary>
+    internal const int MaxDiscordMessageLength = 2000;
+
+    /// <summary>
+    /// Cuts an over-long reply at a word boundary (so mentions like &lt;@123&gt; stay intact) and appends an ellipsis.
+    /// </summary>
+    internal static string TruncateForDiscord(string text)
+    {
+        if (text.Length <= MaxDiscordMessageLength)
+            return text;
+
+        int limit = MaxDiscordMessageLength - 1; // room for the ellipsis
+        int cut = text.LastIndexOf(' ', limit - 1);
+        if (cut < limit / 2)
+        {
+            cut = limit; // no sensible word boundary, hard cut
+            if (char.IsHighSurrogate(text[cut - 1]))
+                cut--;
+        }
+        return text[..cut].TrimEnd() + "…";
+    }
+
     private bool ShouldRespond(SocketMessage arg)
     {
         if (arg.Author.IsBot)
@@ -457,7 +491,7 @@ public partial class WernstromService : IDisposable
             return true;
 
         if (arg.Reference != null && arg is SocketUserMessage userMessage &&
-            userMessage.ReferencedMessage.Author.Id == DiscordClient.CurrentUser.Id)
+            userMessage.ReferencedMessage?.Author.Id == DiscordClient.CurrentUser.Id) // null if the referenced message was deleted
             return true;
 
         return false;
@@ -483,12 +517,7 @@ public partial class WernstromService : IDisposable
                 continue;
             }
 
-            var userInChannel = channel.GetUser(user.Id);
-            if (userInChannel == null)
-            {
-                userInChannel = GenerateChannelUser(user);
-                channel.Users = channel.Users.Add(userInChannel);
-            }
+            var userInChannel = channel.GetOrAddUser(user.Id, () => GenerateChannelUser(user));
 
             var internalTag = $"[[{userInChannel.SanitizedName}]]";
 
@@ -545,7 +574,7 @@ public partial class WernstromService : IDisposable
             {
                 if (channel.ChannelType == ChannelType.Text)
                 {
-                    cache.Channels = cache.Channels.Add(
+                    cache.GetOrAddChannel(
                         new(channel.Id, $"{server.Name} -> {channel.Name}",
                             await GetChannelUsers(channel).ConfigureAwait(false)));
                 }

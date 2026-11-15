@@ -255,15 +255,10 @@ public partial class StollService
             {
                 cachedChannel = new JoinedTextChannel<string>(message.Room.RoomId.Full, message.Room.DisplayName ?? message.Room.CanonicalAlias?.Full ?? "Unknown",
                   ImmutableArray<ChannelUser<string>>.Empty);
-                Cache.Channels = TextChannels.Add(cachedChannel);
+                cachedChannel = Cache.GetOrAddChannel(cachedChannel);
             }
 
-            var cachedUser = cachedChannel.GetUser(message.Sender.User.UserId.Full);
-            if (cachedUser == null)
-            {
-                cachedUser = GenerateChannelUser(message.Sender);
-                cachedChannel.Users = cachedChannel.Users.Add(cachedUser);
-            }
+            var cachedUser = cachedChannel.GetOrAddUser(message.Sender.User.UserId.Full, () => GenerateChannelUser(message.Sender));
 
             string? sanitizedMessage = SanitizeMessage(message, cachedChannel, out var isCurrentUserMentioned);
             if (sanitizedMessage == null)

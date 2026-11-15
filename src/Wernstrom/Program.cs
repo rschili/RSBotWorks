@@ -83,7 +83,7 @@ public static class BuilderExtensions
         {
             options.IncludeScopes = true;
             options.SingleLine = false;
-            options.TimestampFormat = "hh:mm:ss ";
+            options.TimestampFormat = "HH:mm:ss ";
             options.ColorBehavior = Microsoft.Extensions.Logging.Console.LoggerColorBehavior.Enabled;
         });
         builder.AddFilter(typeof(WeatherPlugin).FullName, LogLevel.Information);

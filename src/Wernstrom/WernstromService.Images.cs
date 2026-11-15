@@ -23,6 +23,15 @@ public partial class WernstromService
     private const int MaxImageHeight = MaxImageWidth;
     private const int MaxFileSizeBytes = 2 * 1024 * 1024; // 2MB limit
 
+    /// <summary>Max processed images kept in memory. History requests re-use the same images over and over.</summary>
+    private const int MaxImageCacheEntries = 10;
+
+    /// <summary>
+    /// Processed images by attachment id. A null value marks a permanent failure (e.g. expired CDN url, undecodable
+    /// image) so we do not retry it on every request.
+    /// </summary>
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<ulong, ImageAttachment?> ImageCache = new();
+
     public async Task<IList<ImageAttachment>?> ExtractImageAttachments(IMessage message)
     {
         if (message.Attachments.Count == 0)
@@ -36,16 +45,35 @@ public partial class WernstromService
                 continue;
 
             if (!IsImageFile(attachment.Filename, attachment.ContentType, out var mimeType))
-            {
                 continue;
-            }
 
+            var imageAttachment = await LoadImageAttachmentAsync(attachment, mimeType).ConfigureAwait(false);
+            if (imageAttachment != null)
+                imageAttachments.Add(imageAttachment);
+        }
+
+        return imageAttachments.Count > 0 ? imageAttachments : null;
+    }
+
+    /// <summary>
+    /// Downloads and (if needed) shrinks a single image. Never throws: a broken image must not break the
+    /// whole chat request. Returns null on failure; the caller then just omits the image.
+    /// </summary>
+    private async Task<ImageAttachment?> LoadImageAttachmentAsync(IAttachment attachment, string mimeType)
+    {
+        if (ImageCache.TryGetValue(attachment.Id, out var cached))
+            return cached;
+
+        ImageAttachment? result;
+        try
+        {
             using var httpClient = HttpClientFactory.CreateClient();
             var imageData = await httpClient.GetByteArrayAsync(attachment.Url).ConfigureAwait(false);
             bool isResized = false;
             if (attachment.Size > MaxFileSizeBytes || attachment.Height > MaxImageHeight || attachment.Width > MaxImageWidth)
             {
-                Logger.LogInformation($"Attachment {attachment.Filename} exceeds the size or dimension limits. (Size: {attachment.Size / 1024} KB, Dimensions: {attachment.Width}x{attachment.Height}) it will be resized.");
+                Logger.LogInformation("Attachment {Filename} exceeds the size or dimension limits (Size: {SizeKb} KB, Dimensions: {Width}x{Height}), it will be resized.",
+                    attachment.Filename, attachment.Size / 1024, attachment.Width, attachment.Height);
                 imageData = await ProcessImage(imageData).ConfigureAwait(false);
                 mimeType = "image/jpeg"; // Assume JPEG after processing
                 isResized = true;
@@ -61,26 +89,48 @@ public partial class WernstromService
                     mimeType = detectedFormat.DefaultMimeType;
                 }
             }
+
             if (imageData == null || imageData.Length == 0)
             {
-                Logger.LogWarning($"Failed to download or process image: {attachment.Filename}");
-                continue;
+                Logger.LogWarning("Failed to download or process image: {Filename}", attachment.Filename);
+                result = null;
             }
-
-            var imageAttachment = new ImageAttachment
+            else
             {
-                Filename = attachment.Filename,
-                Size = attachment.Size,
-                Width = attachment.Width ?? 0,
-                Height = attachment.Height ?? 0,
-                IsResized = isResized,
-                MimeType = mimeType,
-                Data = imageData
-            };
-            imageAttachments.Add(imageAttachment);
+                result = new ImageAttachment
+                {
+                    Filename = attachment.Filename,
+                    Size = attachment.Size,
+                    Width = attachment.Width ?? 0,
+                    Height = attachment.Height ?? 0,
+                    IsResized = isResized,
+                    MimeType = mimeType,
+                    Data = imageData
+                };
+            }
+        }
+        catch (HttpRequestException ex) when (ex.StatusCode is { } status && (int)status >= 400 && (int)status < 500)
+        {
+            // Typically an expired Discord CDN url on an old cached message. Will not recover, remember it.
+            Logger.LogWarning("Image {Filename} could not be downloaded (HTTP {StatusCode}), skipping it.", attachment.Filename, (int)status);
+            result = null;
+        }
+        catch (ImageFormatException ex)
+        {
+            Logger.LogWarning(ex, "Image {Filename} could not be decoded, skipping it.", attachment.Filename);
+            result = null;
+        }
+        catch (Exception ex)
+        {
+            // Transient (network, 5xx, timeout): skip this time, but do not remember the failure.
+            Logger.LogWarning(ex, "Image {Filename} could not be loaded, skipping it for this request.", attachment.Filename);
+            return null;
         }
 
-        return imageAttachments.Count > 0 ? imageAttachments : null;
+        if (ImageCache.Count >= MaxImageCacheEntries)
+            ImageCache.Clear();
+        ImageCache[attachment.Id] = result;
+        return result;
     }
 
     private static readonly Dictionary<string, string> ImageExtensionToMimeType = new(StringComparer.OrdinalIgnoreCase)
@@ -154,12 +204,13 @@ public partial class WernstromService
 
                 // Save or process the resized image
                 var resizedData = await ConvertImageToJpeg(resizedImage).ConfigureAwait(false);
-                Logger.LogInformation($"Resized image to: {resizedImage.Width}x{resizedImage.Height} Size reduced from {imageData.Length / 1024} KB to {resizedData.Length / 1024} KB");
+                Logger.LogInformation("Resized image to {Width}x{Height}, size reduced from {OriginalKb} KB to {ResizedKb} KB",
+                    resizedImage.Width, resizedImage.Height, imageData.Length / 1024, resizedData.Length / 1024);
                 return resizedData;
             }
 
             var processedData = await ConvertImageToJpeg(image).ConfigureAwait(false);
-            Logger.LogInformation($"Size reduced from {imageData.Length / 1024} KB to {processedData.Length / 1024} KB");
+            Logger.LogInformation("Size reduced from {OriginalKb} KB to {ProcessedKb} KB", imageData.Length / 1024, processedData.Length / 1024);
             return processedData;
         }
     }
