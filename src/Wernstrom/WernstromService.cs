@@ -142,8 +142,7 @@ public partial class WernstromService : IDisposable
 
         ReactionTemplate = baseComposer.Fork()
             .SetModel("@preset/wernstrom-reaction")
-            .SetMaxTokens(1000)
-            .SetSystemPromptCacheControl(); // history slides every call, so only the system prompt is worth caching
+            .SetMaxTokens(1000);
 
         StatusTemplate = baseComposer.Fork()
             .SetMaxTokens(2000);
