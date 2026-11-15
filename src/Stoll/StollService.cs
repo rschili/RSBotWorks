@@ -282,8 +282,8 @@ public partial class StollService
 
             if (!ShouldRespond(message, cachedChannel.Id, sanitizedMessage, cachedUser, isCurrentUserMentioned))
             {
-                // Even if we don't respond with a message, we might react
-                await HandleReactionsAsync(message, cachedChannel, sanitizedMessage).ConfigureAwait(false);
+                // Even if we don't respond with a message, we might react to a greeting (local, no AI)
+                await HandleGreetingReactionAsync(message, sanitizedMessage).ConfigureAwait(false);
                 return;
             }
 
@@ -344,6 +344,7 @@ public partial class StollService
             StoreMessageHistory(channel.Id, author.SanitizedName, sanitizedMessage, message.Timestamp, response);
             Logger.LogInformation("[Chat] Responded to {Author}: {SanitizedMessage}", author.SanitizedName, sanitizedMessage.Length > 50 ? sanitizedMessage[..50] : sanitizedMessage);
 
+            // Deliberately standalone messages, not Matrix replies.
             IList<MatrixId> mentions = [];
             response = HandleMentions(response, channel, mentions).Trim();
 
@@ -351,10 +352,10 @@ public partial class StollService
             if (LooksLikeMarkdown(response))
             {
                 var html = Markdown.ToHtml(response);
-                await message.SendHtmlResponseAsync(response, html, isReply: mentions == null, mentions: mentions).ConfigureAwait(false);
+                await message.SendHtmlResponseAsync(response, html, isReply: false, mentions: mentions).ConfigureAwait(false);
             }
             else
-                await message.SendResponseAsync(response, isReply: mentions == null, mentions: mentions).ConfigureAwait(false);
+                await message.SendResponseAsync(response, isReply: false, mentions: mentions).ConfigureAwait(false);
         }
         catch (System.Net.Http.HttpRequestException ex)
         {
@@ -473,8 +474,7 @@ public partial class StollService
     private static ChannelUser<string> GenerateChannelUser(RoomUser user)
     {
         var displayName = user.GetDisplayName();
-        var sanitizedName = NameSanitizer.IsValidName(displayName) ? displayName : NameSanitizer.SanitizeName(displayName);
-        return new ChannelUser<string>(user.User.UserId.Full, displayName, sanitizedName);
+        return new ChannelUser<string>(user.User.UserId.Full, displayName, SanitizeName(displayName));
     }
 
     private string? SanitizeMessage(ReceivedTextMessage message, JoinedTextChannel<string> cachedChannel, out bool isCurrentUserMentioned)
@@ -491,26 +491,47 @@ public partial class StollService
         if (invalidStrings.Any(text.Contains))
             return null;
 
-        var customMentionPattern = @"<@(?<userId>[^:]+:[^>]+)>";
-        bool wasMentioned = false;
-        text = Regex.Replace(text, customMentionPattern, match =>
-        {
-            var userId = match.Groups["userId"].Value;
-            var user = cachedChannel.GetUser(userId);
-            if (user?.Id == _client!.CurrentUser.Full)
-            {
-                wasMentioned = true;
-            }
-            return user != null ? $"[[{user.SanitizedName}]]" : match.Value;
-        });
-
-        if (wasMentioned)
-            isCurrentUserMentioned = true;
+        // Resolve Matrix IDs to names: known chat participants first, then the room's member list.
+        // Not added to the user cache, so Stoll cannot ping people just because someone else mentioned them.
+        text = ReplaceMatrixMentions(text, _client!.CurrentUser.Full, userId =>
+            cachedChannel.GetUser(userId)?.SanitizedName
+            ?? (message.Room.Users.TryGetValue(userId, out var roomUser) ? SanitizeName(roomUser.GetDisplayName()) : null),
+            out isCurrentUserMentioned);
 
         // Remove markdown style quotes
         text = Regex.Replace(text, @"^>.*$", string.Empty, RegexOptions.Multiline);
         return text;
     }
+
+    /// <summary>
+    /// Matrix user IDs, either as <c>&lt;@user:server&gt;</c> or bare <c>@user:server</c>. Not preceded by a word
+    /// character, so e-mail addresses do not match. A trailing dot (end of sentence) is not part of the server name.
+    /// </summary>
+    private static readonly Regex MatrixUserIdRegex = new(
+        @"(?<![\w.])<?(?<id>@(?<local>[a-zA-Z0-9._=\-/+]+):[a-zA-Z0-9\-]+(?:\.[a-zA-Z0-9\-]+)*(?::\d+)?)>?",
+        RegexOptions.Compiled);
+
+    /// <summary>
+    /// Replaces Matrix user IDs with <c>[[Name]]</c>. Full IDs (incl. homeserver) of people who never talked to Stoll
+    /// must not reach the LLM: unresolvable IDs fall back to the localpart only.
+    /// </summary>
+    internal static string ReplaceMatrixMentions(string text, string selfId, Func<string, string?> resolveName, out bool selfMentioned)
+    {
+        bool mentioned = false;
+        var result = MatrixUserIdRegex.Replace(text, match =>
+        {
+            var userId = match.Groups["id"].Value;
+            if (string.Equals(userId, selfId, StringComparison.Ordinal))
+                mentioned = true;
+            var name = resolveName(userId) ?? SanitizeName(match.Groups["local"].Value);
+            return $"[[{name}]]";
+        });
+        selfMentioned = mentioned;
+        return result;
+    }
+
+    private static string SanitizeName(string name)
+        => NameSanitizer.IsValidName(name) ? name : NameSanitizer.SanitizeName(name);
 
     private bool ShouldRespond(ReceivedTextMessage message, string channelId, string sanitizedMessage, ChannelUser<string> author, bool isCurrentUserMentionedInBody)
     {

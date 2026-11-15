@@ -61,28 +61,33 @@ public partial class StollService
         Nachrichten anderer Benutzer enthalten den Benutzernamen als Präfix im Format: `[[Name]]:`.
         """;
 
-    private async Task HandleReactionsAsync(RSMatrix.Models.ReceivedTextMessage message, JoinedTextChannel<string> cachedChannel, string sanitizedMessage)
+    /// <summary>Greeting → random food/drink reaction. Purely local, the message never leaves the bot.</summary>
+    private async Task HandleGreetingReactionAsync(RSMatrix.Models.ReceivedTextMessage message, string sanitizedMessage)
     {
-        // Greeting → random food/drink reaction
-        if (GreetingKeywords.Contains(sanitizedMessage.Trim()))
-        {
-            var emoji = GreetingReactions[Random.Shared.Next(GreetingReactions.Length)];
-            try
-            {
-                await message.SendReactionAsync(emoji).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                Logger.LogError(ex, "Failed to send greeting reaction.");
-            }
+        if (!GreetingKeywords.Contains(sanitizedMessage.Trim()))
             return;
-        }
 
+        var emoji = GreetingReactions[Random.Shared.Next(GreetingReactions.Length)];
+        try
+        {
+            await message.SendReactionAsync(emoji).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to send greeting reaction.");
+        }
+    }
+
+    /// <summary>
+    /// AI-chosen emoji reaction. NOT WIRED UP on purpose: reactions target messages Stoll does not answer, i.e. messages
+    /// that do not address him — sending those to the LLM violates the consent model. Kept as plumbing for a future
+    /// consent-compatible use (e.g. reacting instead of answering to messages that do address him).
+    /// </summary>
+    private async Task HandleAiReactionAsync(RSMatrix.Models.ReceivedTextMessage message, JoinedTextChannel<string> cachedChannel, string sanitizedMessage)
+    {
         // Probability ramp — most messages get no reaction
         if (!EmojiProbabilityRamp.Check())
             return;
-
-        return; // TEMP: disable reactions until we have a chance to do it in a safer way.
 
         var systemPrompt = REACTION_INSTRUCTION;
         var composer = ReactionTemplate.Fork()
