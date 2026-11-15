@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using Discord;
 using Discord.WebSocket;
@@ -76,7 +77,8 @@ public partial class WernstromService : IDisposable
         Du kannst dich weigern zu antworten, indem du roh `<NO_RESPONSE>` zurückgibst. Tu das, wenn die Konversation keine Antwort erfordert oder du eine Antwort verweigern möchtest.
         Bleibe auch bei Recherchen im Charakter.
         Sei nicht ausschweifend und sprinkle Futurama und Zukunfts-Referenzen sparsam ein, wenn es passt; nicht bei jeder Nachricht.
-        Du bekommst Nachrichten in folgendem Format übergeben: `[Time] [[Name]]: Message`.
+        Der Verlauf hat das Format `[Zeit] [[Name]]: Nachricht`.
+        Angaben in runden Klammern vor dem Doppelpunkt (Antwortbezug) und Zeilen in geschweiften Klammern (Reaktionen, „du“ = du selbst) sind Systemmetadaten: nur Hintergrund, nicht überbewerten und niemals selbst schreiben. Deine Antwort ist reiner Nachrichtentext ohne Zeit, Namen-Präfix oder Metadaten.
         Generiere eine Antwort auf die letzte empfangene Nachricht auf Deutsch.
 
         Einige Beispielsätze, die Professor Wernstrom schreiben würde, um deinen Stil zu verdeutlichen:
@@ -119,6 +121,7 @@ public partial class WernstromService : IDisposable
             var emotes = Emotes.Value.Select(e => e.Key).OrderBy(name => name, StringComparer.OrdinalIgnoreCase).ToList();
             return JsonSerializer.Serialize(emotes);
         }, LazyThreadSafetyMode.ExecutionAndPublication);
+        EmoteNames = new(() => BuildEmoteNamesDictionary(), LazyThreadSafetyMode.ExecutionAndPublication);
 
         var toolDefinitions = LocalFunctions.Select(ToolDefinition.FromLocalFunction).ToArray();
 
@@ -128,14 +131,19 @@ public partial class WernstromService : IDisposable
         //.SetThinkingType("adaptive")
         //.SetEffort("low");
 
+        // Prompt caching: the system breakpoint caches tools + system prompt (stable across channels),
+        // the top-level cache_control lets Anthropic cache the growing conversation automatically.
         ChatTemplate = baseComposer.Fork()
             .SetMaxTokens(2500)
+            .SetSystemPromptCacheControl()
+            .Set("cache_control", new JsonObject { ["type"] = "ephemeral" })
             .EnableWebSearch(city: "Heidelberg", country: "DE", timezone: "Europe/Berlin")
             .AddTools(toolDefinitions);
 
         ReactionTemplate = baseComposer.Fork()
             .SetModel("@preset/wernstrom-reaction")
-            .SetMaxTokens(1000);
+            .SetMaxTokens(1000)
+            .SetSystemPromptCacheControl(); // history slides every call, so only the system prompt is worth caching
 
         StatusTemplate = baseComposer.Fork()
             .SetMaxTokens(2000);
@@ -318,14 +326,14 @@ public partial class WernstromService : IDisposable
 
         // GetMessagesAsync returns newest-first; SelectHistory trims it down to a
         // budgeted, chronological window and decides which messages keep their images.
-        var history = SelectHistory(liveHistory, arg.Timestamp);
-        Logger.LogDebug("Selected {Count} of {Fetched} messages for history ({ImageCount} with images)",
-            history.Count, liveHistory.Count, history.Count(h => h.IncludeImages));
-        foreach (var entry in history)
-        {
-            await AddMessageToComposer(composer, entry.Message, cachedChannel, entry.IncludeImages).ConfigureAwait(false);
-        }
-        await AddMessageToComposer(composer, arg, cachedChannel).ConfigureAwait(false);
+        // The window start sticks to the previous one where possible to keep the prompt prefix cacheable.
+        ulong? anchor = HistoryAnchors.TryGetValue(arg.Channel.Id, out var previousAnchor) ? previousAnchor : null;
+        var history = SelectHistory(liveHistory, arg.Timestamp, anchor);
+        if (history.Count > 0)
+            HistoryAnchors[arg.Channel.Id] = history[0].Message.Id;
+        Logger.LogDebug("Selected {Count} of {Fetched} messages for history ({ImageCount} with images, anchor kept: {AnchorKept})",
+            history.Count, liveHistory.Count, history.Count(h => h.IncludeImages), history.Count > 0 && history[0].Message.Id == anchor);
+        await AddHistoryToComposer(composer, history, arg, cachedChannel, includeReactorNames: true).ConfigureAwait(false);
         stopwatch.Stop();
         Logger.LogDebug("It took {Seconds:F3}s to construct message history", stopwatch.Elapsed.TotalSeconds);
 
@@ -418,12 +426,13 @@ public partial class WernstromService : IDisposable
     {
         // Token counts span all rounds; request/response sizes and identifiers describe
         // the final HTTP exchange. Null token counts mean unknown, not zero.
-        Logger.LogInformation("[{Context}] {InputTokens}in/{OutputTokens}out tokens ({ReasoningTokens} reasoning) in {Elapsed:F2}s; " +
+        Logger.LogInformation("[{Context}] {InputTokens}in/{OutputTokens}out tokens ({ReasoningTokens} reasoning, " +
+            "{CacheReadTokens} cache read, {CacheWriteTokens} cache write) in {Elapsed:F2}s; " +
             "{ToolRounds} tool round(s) ({Model}, {Provider}); finish={FinishReason}, native={NativeFinishReason}; " +
             "last request={RequestBytes} UTF-8 bytes, response={ResponseBytes} bytes, text={TextChars} chars; " +
             "HTTP {StatusCode}, generation={ResponseId}",
             context, result.Usage?.InputTokens, result.Usage?.OutputTokens, result.Usage?.ReasoningTokens,
-            elapsed.TotalSeconds, result.ToolRoundsExecuted, result.ModelId, result.Provider,
+            result.Usage?.CacheReadInputTokens, result.Usage?.CacheCreationInputTokens, elapsed.TotalSeconds, result.ToolRoundsExecuted, result.ModelId, result.Provider,
             result.StopReason, result.NativeStopReason, Encoding.UTF8.GetByteCount(result.Request.Body ?? ""),
             Encoding.UTF8.GetByteCount(result.Response.Body), result.TextContent?.Length ?? 0,
             result.Response.StatusCode, result.ResponseId);
@@ -436,113 +445,6 @@ public partial class WernstromService : IDisposable
                 "ResponseBody (truncated={ResponseBodyTruncated}): {ResponseBody}",
                 context, result.ResponseId, result.Response.Body.Length > MaxDiagnosticResponseChars,
                 DiagnosticResponseExcerpt(result.Response.Body));
-        }
-    }
-
-    /// <summary>Largest history window we ever fetch from Discord. Mostly served from the local message cache.</summary>
-    private const int MaxHistoryMessages = 50;
-
-    /// <summary>Always keep at least this many messages, even if they are old. Keeps sparse conversations coherent.</summary>
-    private const int MinHistoryMessages = 4;
-
-    /// <summary>Images are only kept for the newest N messages. Older images are dropped (they are expensive in tokens).</summary>
-    private const int MaxImageDepth = 6;
-
-    /// <summary>Total character budget for history text. Lets us include many short messages or fewer long ones.</summary>
-    private const int MaxHistoryChars = 6000;
-
-    /// <summary>Messages older than this are dropped once the minimum is satisfied.</summary>
-    private static readonly TimeSpan MaxHistoryAge = TimeSpan.FromHours(4);
-
-    private readonly record struct HistorySelection(IMessage Message, bool IncludeImages);
-
-    /// <summary>
-    /// Picks which of the fetched messages (newest-first) to include in the prompt and whether each keeps its images.
-    /// Walks from newest to oldest, stopping when the budget is exhausted, but always keeps a minimum for context.
-    /// Returns the selection in chronological (oldest-first) order.
-    /// </summary>
-    private static List<HistorySelection> SelectHistory(IReadOnlyList<IMessage> newestFirst, DateTimeOffset triggerTime)
-    {
-        var selected = new List<HistorySelection>();
-        int remainingChars = MaxHistoryChars;
-
-        for (int i = 0; i < newestFirst.Count && selected.Count < MaxHistoryMessages; i++)
-        {
-            var message = newestFirst[i];
-            bool haveMinimum = selected.Count >= MinHistoryMessages;
-
-            // Drop anything older than the cutoff, but only once we already have enough
-            // context — a quiet channel should still show its last few messages.
-            if (haveMinimum && triggerTime - message.Timestamp > MaxHistoryAge)
-                break;
-
-            int cost = message.Content?.Length ?? 0;
-            if (haveMinimum && cost > remainingChars)
-                break;
-
-            remainingChars -= cost;
-            selected.Add(new HistorySelection(message, IncludeImages: i < MaxImageDepth));
-        }
-
-        selected.Reverse(); // chronological order for the prompt
-        return selected;
-    }
-
-    private async Task AddMessageToComposer(OpenRouterRequestComposer composer, IMessage message, JoinedTextChannel<ulong> cachedChannel, bool includeImages = true)
-    {
-        var user = cachedChannel.GetUser(message.Author.Id);
-        if (user == null)
-        {
-            user = GenerateChannelUser(message.Author);
-            cachedChannel.Users = cachedChannel.Users.Add(user);
-        }
-
-        bool self = message.Author.Id == DiscordClient.CurrentUser.Id;
-        if (self)
-        {
-            composer.AddAssistantMessage(ReplaceDiscordTags(message.Tags, message.Content, cachedChannel));
-        }
-        else
-        {
-            var text = ReplaceDiscordTags(message.Tags, message.Content, cachedChannel);
-            var prefix = $"[{message.Timestamp.ToRelativeToNowLabel()}] [[{user.SanitizedName}]]: ";
-
-            var attachments = includeImages ? await ExtractImageAttachments(message).ConfigureAwait(false) : null;
-            if (attachments != null && attachments.Count > 0)
-            {
-                var blocks = new List<OpenRouterMessageBlock>();
-                blocks.Add(OpenRouterMessageBlock.FromText($"{prefix}{text}"));
-                foreach (var attachment in attachments)
-                {
-                    blocks.Add(OpenRouterMessageBlock.FromImage(attachment.MimeType, attachment.Data));
-                }
-                composer.AddUserMessage(blocks.ToArray());
-            }
-            else
-            {
-                // Images were dropped (too far back) but leave a cheap marker so the
-                // model still knows something visual was shared.
-                if (!includeImages && MessageHasImage(message))
-                    text = string.IsNullOrWhiteSpace(text) ? "[Bild]" : $"{text} [Bild]";
-                composer.AddUserMessage($"{prefix}{text}");
-            }
-
-            var myReactions = message.Reactions.Where(r => r.Value.IsMe).Select(r => r.Key).ToList();
-
-            if (myReactions.Count > 0)
-            {
-                if (myReactions.Any(e => e.Name?.Contains(NoReactionEmoji) == true))
-                {
-                    composer.AddAssistantMessage("<NO_RESPONSE>");
-                }
-                else
-                {
-                    var reactionNames = myReactions
-                        .Select(e => e.Name)
-                        .Where(n => n != null);
-                    composer.AddAssistantMessage($"(reacted with emojis: {string.Join(",", reactionNames)})");
-                }
-            }
         }
     }
 

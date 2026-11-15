@@ -32,6 +32,7 @@ public sealed class OpenRouterRequestComposer
     private string _toolChoice = "auto";
     private JsonObject? _webSearchToolJson;
     private JsonObject? _webFetchToolJson;
+    private JsonObject? _systemCacheControl;
 
     public OpenRouterRequestComposer()
     {
@@ -43,8 +44,9 @@ public sealed class OpenRouterRequestComposer
 
     private OpenRouterRequestComposer(JsonObject root, List<JsonNode> messages,
         List<ToolDefinition> tools, string? systemPrompt, string toolChoice,
-        JsonObject? webSearchToolJson, JsonObject? webFetchToolJson)
+        JsonObject? webSearchToolJson, JsonObject? webFetchToolJson, JsonObject? systemCacheControl)
     {
+        _systemCacheControl = systemCacheControl;
         _root = root;
         _messages = messages;
         _tools = tools;
@@ -76,6 +78,30 @@ public sealed class OpenRouterRequestComposer
     public OpenRouterRequestComposer SetSystemPrompt(string systemPrompt)
     {
         _systemPrompt = systemPrompt;
+        return this;
+    }
+
+    /// <summary>
+    /// Mark the system prompt as an explicit prompt-cache breakpoint (Anthropic-style
+    /// <c>cache_control</c> on the system content block). Everything up to and including
+    /// the system prompt (tools + system) becomes cacheable independently of the messages.
+    /// The system message is then emitted as a content array instead of a plain string.
+    /// For automatic caching of the whole conversation use <c>Set("cache_control", ...)</c>.
+    /// </summary>
+    /// <param name="ttl">Optional TTL, e.g. "1h". Null uses the provider default (5 minutes).</param>
+    public OpenRouterRequestComposer SetSystemPromptCacheControl(string type = "ephemeral", string? ttl = null)
+    {
+        var cacheControl = new JsonObject { ["type"] = type };
+        if (ttl != null)
+            cacheControl["ttl"] = ttl;
+        _systemCacheControl = cacheControl;
+        return this;
+    }
+
+    /// <summary>Remove the system prompt cache breakpoint.</summary>
+    public OpenRouterRequestComposer ClearSystemPromptCacheControl()
+    {
+        _systemCacheControl = null;
         return this;
     }
 
@@ -304,8 +330,9 @@ public sealed class OpenRouterRequestComposer
             var toolsClone = new List<ToolDefinition>(_tools);
             var webSearchClone = _webSearchToolJson?.DeepClone().AsObject();
             var webFetchClone = _webFetchToolJson?.DeepClone().AsObject();
+            var systemCacheClone = _systemCacheControl?.DeepClone().AsObject();
             return new OpenRouterRequestComposer(rootClone, messagesClone,
-                toolsClone, _systemPrompt, _toolChoice, webSearchClone, webFetchClone);
+                toolsClone, _systemPrompt, _toolChoice, webSearchClone, webFetchClone, systemCacheClone);
         }
     }
 
@@ -342,7 +369,20 @@ public sealed class OpenRouterRequestComposer
         // Messages — prepend the system message if set
         var messages = new JsonArray();
         if (_systemPrompt != null)
-            messages.Add(new JsonObject { ["role"] = "system", ["content"] = _systemPrompt });
+        {
+            JsonNode content = _systemCacheControl == null
+                ? JsonValue.Create(_systemPrompt)
+                : new JsonArray
+                {
+                    new JsonObject
+                    {
+                        ["type"] = "text",
+                        ["text"] = _systemPrompt,
+                        ["cache_control"] = _systemCacheControl.DeepClone()
+                    }
+                };
+            messages.Add(new JsonObject { ["role"] = "system", ["content"] = content });
+        }
         foreach (var msg in messagesCopy)
             messages.Add(msg);
         root["messages"] = messages;

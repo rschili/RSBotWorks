@@ -28,6 +28,31 @@ public class OpenRouterRequestComposerTests
     }
 
     [Test]
+    public async Task SystemPromptCacheControl_EmitsContentBlockWithBreakpoint_AndSurvivesFork()
+    {
+        var template = new OpenRouterRequestComposer()
+            .SetModel("anthropic/claude-sonnet-4")
+            .SetSystemPrompt("You are a pirate.")
+            .SetSystemPromptCacheControl(ttl: "1h");
+
+        var json = template.Fork().AddUserMessage("Ahoy!").BuildJsonString();
+        using var doc = JsonDocument.Parse(json);
+        var system = doc.RootElement.GetProperty("messages")[0];
+
+        await Assert.That(system.GetProperty("role").GetString()).IsEqualTo("system");
+        var block = system.GetProperty("content")[0];
+        await Assert.That(block.GetProperty("type").GetString()).IsEqualTo("text");
+        await Assert.That(block.GetProperty("text").GetString()).IsEqualTo("You are a pirate.");
+        await Assert.That(block.GetProperty("cache_control").GetProperty("type").GetString()).IsEqualTo("ephemeral");
+        await Assert.That(block.GetProperty("cache_control").GetProperty("ttl").GetString()).IsEqualTo("1h");
+
+        var cleared = template.Fork().ClearSystemPromptCacheControl().AddUserMessage("Ahoy!").BuildJsonString();
+        using var clearedDoc = JsonDocument.Parse(cleared);
+        await Assert.That(clearedDoc.RootElement.GetProperty("messages")[0].GetProperty("content").GetString())
+            .IsEqualTo("You are a pirate.");
+    }
+
+    [Test]
     public async Task SystemPrompt_PrependedAsSystemMessage()
     {
         var composer = new OpenRouterRequestComposer()

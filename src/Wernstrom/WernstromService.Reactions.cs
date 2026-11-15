@@ -24,7 +24,8 @@ public partial class WernstromService
         Choose an appropriate reaction for the last message you received from the following JSON list: {emojiList}.
         Only provide the value directly, without formatting, quotes, or additional text.
         When choosing a reaction, prioritize the content of the last message; your personality should play a minor role, as otherwise you would almost always make the same choice.
-        Messages from other users in the chat history include the username prefixed as context in the following format: `[[Name]]:`.
+        Messages from other users in the chat history include the username prefixed as context in the following format: `[Time] [[Name]]:`.
+        Reply context in parentheses before the colon and lines in curly braces (existing reactions, „du“ = you) are system metadata, only background.
         """;
 
     private Dictionary<string, IEmote> BuildEmotesDictionary()
@@ -152,11 +153,9 @@ public partial class WernstromService
         var composer = ReactionTemplate.Fork()
             .SetSystemPrompt(systemPrompt);
 
-        foreach (var message in liveHistory)
-        {
-            await AddMessageToComposer(composer, message, cachedChannel).ConfigureAwait(false);
-        }
-        await AddMessageToComposer(composer, arg, cachedChannel).ConfigureAwait(false);
+        // GetMessagesAsync returns newest-first; the prompt needs chronological order.
+        var history = liveHistory.Reverse().Select(m => new HistorySelection(m, IncludeImages: true)).ToList();
+        await AddHistoryToComposer(composer, history, arg, cachedChannel, includeReactorNames: false).ConfigureAwait(false);
 
         try
         {
