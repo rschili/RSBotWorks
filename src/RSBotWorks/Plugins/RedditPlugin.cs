@@ -45,10 +45,10 @@ public class RedditPlugin
     // of the codebase (and the Markdig -> Matrix HTML pipeline) expects markdown, so we convert back.
     private static readonly ReverseMarkdown.Converter HtmlToMarkdown = new(new ReverseMarkdown.Config
     {
-        UnknownTags = ReverseMarkdown.Config.UnknownTagsOption.Bypass,
+        Tags = { Unknown = ReverseMarkdown.Config.UnknownTagsOption.Bypass },
         GithubFlavored = false,
-        RemoveComments = true,
-        SmartHrefHandling = true
+        Formatting = { RemoveComments = true },
+        Links = { SmartHref = true }
     });
 
     public ILogger Logger { get; private init; }
