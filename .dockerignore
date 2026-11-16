@@ -1,0 +1,10 @@
+# Keep host build artifacts out of the image build context.
+# The Dockerfiles COPY /src wholesale; without this, local bin/obj/out
+# (including obj/project.assets.json with host paths) leak into the build.
+**/bin/
+**/obj/
+**/out/
+**/TestResults/
+**/.vs/
+.env
+**/.env
